@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](#)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688?logo=fastapi&logoColor=white)](#)
-[![Tests](https://img.shields.io/badge/tests-108%20passing-2ea44f)](#-تستها)
+[![Tests](https://img.shields.io/badge/tests-119%20passing-2ea44f)](#-تستها)
 [![CI](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/ci.yml)
 [![Pages](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/pages.yml/badge.svg)](https://raoufkhoshnazarsp.github.io/Order-Forecasting-Engine/)
 [![License](https://img.shields.io/badge/license-proprietary-6b7280)](#)
@@ -139,7 +139,7 @@ python scripts/forecast_from_excel.py --template data/template.xlsx
 
 ## 🖥 رابط کاربری
 
-یک صفحهٔ فارسی و کاملاً راست‌چین، بدون build و بدون CDN:
+یک صفحهٔ فارسی و کاملاً راست‌چین با تم تیرهٔ داشبوردی (سایدبار ناوبری، پنل‌های `#1F2A40` روی بوم `#141b2d`، تأکیدهای سبز/آبی)، بدون build و بدون CDN:
 
 - **Drag & drop** فایل اکسل با اعتبارسنجی پسوند و حجم
 - انتخاب افق پیش‌بینی (۷ تا ۹۰ روز) و مدل (یا انتخاب خودکار بر اساس بک‌تست)
@@ -150,6 +150,41 @@ python scripts/forecast_from_excel.py --template data/template.xlsx
 - فهرست هشدارها و برگه‌های خوانده‌شده
 
 دسترس‌پذیری: ناوبری با کیبورد، `skip-link`، برچسب‌های ARIA، کنتراست کافی و احترام به `prefers-reduced-motion`.
+
+---
+
+## 📤 خروجی تحویل (`output.xlsx`)
+
+علاوه بر داشبورد، یک فایل اکسل با **قالب دقیق تحویل تجاری** تولید می‌شود: یک ردیف برای هر
+`تاریخ × عمودی × دسته`، برای **۳۰ روز پس از آخرین روز موجود در فایل ورودی**.
+
+| ستون | توضیح |
+| --- | --- |
+| `date` | تاریخ میلادی هدف (`yyyy-mm-dd`) |
+| `level` | همیشه `vertical` |
+| `vertical` | یکی از `DIGITAL, FASHION, FMCG, GOLD, H&B, HOME, SERVICES, SNAPP-VENTURE, VERTICALS, SNAPP-PAY` |
+| `category` | دستهٔ همان عمودی؛ برای `VERTICALS` و `SNAPP-PAY` خالی است |
+| `order` | سفارش پیش‌بینی‌شده |
+| `GMV` | `order × AOV` پیش‌بینی‌شده |
+
+قواعد ساختار (دقیقاً مطابق فایل مرجع):
+
+- `VERTICALS` جمع دقیق ردیف‌های دسته‌ای همان ۷ عمودی است — نه یک پیش‌بینی مستقل.
+- `SNAPP-VENTURE` (با دستهٔ `ventures`) و `SNAPP-PAY` **هم‌سطح** `VERTICALS` هستند، نه زیرمجموعهٔ آن.
+- ترتیب هر روز: دسته‌های ۷ عمودی → `SNAPP-VENTURE` → `VERTICALS` → `SNAPP-PAY` (۲۸ ردیف در روز).
+- اگر منبع دادهٔ Snapp-Pay نداشته باشد، ردیف آن صفر نوشته می‌شود تا قالب کامل بماند (با هشدار صریح).
+
+```bash
+# خط فرمان
+python scripts/build_delivery.py --file uploads/data-model.xlsx \
+    --out outputs/forecast-30d.xlsx --horizon 30
+
+# از طریق API (دانلود مستقیم فایل)
+curl -X POST http://localhost:8000/api/delivery \
+  -F "file=@uploads/data-model.xlsx" -F horizon=30 -o forecast.xlsx
+```
+
+در رابط کاربری هم دکمهٔ **«دانلود فایل تحویل»** همین خروجی را می‌سازد.
 
 ---
 
@@ -237,7 +272,7 @@ data/calendar/
   dim_date.csv.gz         جدول تقویم شمسی (۱۸٬۱۸۴ روز)
 
 sql/                      قالب‌های SQL اختیاری برای آینده
-tests/                    ۱۰۸ تست
+tests/                    ۱۱۹ تست
 ```
 
 ---
@@ -352,7 +387,7 @@ TOTAL = Σ(VERTICAL) + Σ(VENTURE)
 ## ✅ تست‌ها
 
 ```bash
-python -m pytest          # ۱۰۸ تست
+python -m pytest          # ۱۱۹ تست
 python scripts/smoke_run.py   # اجرای سرتاسری روی دادهٔ مصنوعی
 ```
 
@@ -367,6 +402,7 @@ python scripts/smoke_run.py   # اجرای سرتاسری روی دادهٔ مص
 | `test_target.py` | گاردهای تعریف تارگت، امنیت SQL |
 | `test_sql_contract.py` | قرارداد قالب‌های SQL اختیاری |
 | `test_gmv_calendar.py` | ساختار `daily_metrics`، ریاضی AOV/GMV، روز ناقص، جدول تقویم |
+| `test_delivery.py` | قالب فایل تحویل: ستون‌ها، `VERTICALS` = جمع دسته‌ها، Venture/Pay هم‌سطح، GMV = سفارش × AOV |
 
 ---
 

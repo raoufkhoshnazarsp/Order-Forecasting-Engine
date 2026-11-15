@@ -7,6 +7,7 @@
   const fileInput = document.getElementById("file");
   const fileName = document.getElementById("file-name");
   const submitBtn = document.getElementById("submit-btn");
+  const deliveryBtn = document.getElementById("delivery-btn");
   const errorBox = document.getElementById("error-box");
   const progress = document.getElementById("progress");
   const results = document.getElementById("results");
@@ -70,6 +71,42 @@
     if (file) {
       fileInput.files = event.dataTransfer.files;
       setFile(file);
+    }
+  });
+
+  deliveryBtn.addEventListener("click", async () => {
+    clearError();
+    const file = fileInput.files[0];
+    if (!file) {
+      showError("ابتدا فایل اکسل را انتخاب کنید.");
+      return;
+    }
+
+    const body = new FormData();
+    body.append("file", file);
+    body.append("horizon", document.getElementById("horizon").value);
+    body.append("model", document.getElementById("model").value);
+
+    deliveryBtn.disabled = true;
+    try {
+      const response = await fetch("/api/delivery", { method: "POST", body });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || "ساخت فایل تحویل ناموفق بود.");
+      }
+      const blob = await response.blob();
+      const stamp = (response.headers.get("X-Forecast-Rows") || "").trim();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `forecast-delivery${stamp ? "-" + stamp + "rows" : ""}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 4000);
+    } catch (error) {
+      showError(error.message || "خطای نامشخص در ساخت فایل تحویل.");
+    } finally {
+      deliveryBtn.disabled = false;
     }
   });
 
@@ -229,7 +266,7 @@
       series = chart[metric];
     }
     if (!series || !series.history || !series.history.values.length) {
-      svg.innerHTML = '<text x="400" y="150" text-anchor="middle" fill="#8a93a6">داده‌ای برای این شاخص موجود نیست</text>';
+      svg.innerHTML = '<text x="400" y="150" text-anchor="middle" fill="#8b9cb3">داده‌ای برای این شاخص موجود نیست</text>';
       return;
     }
 
@@ -266,7 +303,7 @@
       svg.appendChild(
         make("line", {
           x1: pad.left, x2: W - pad.right, y1: yy, y2: yy,
-          stroke: "#eef1f6", "stroke-width": 1,
+          stroke: "#2c3a54", "stroke-width": 1,
         })
       );
       const label = make("text", { x: pad.left - 8, y: yy + 4, "text-anchor": "end" });
@@ -283,7 +320,7 @@
       const bandPath =
         "M" + upper.map((p) => p.join(",")).join("L") +
         "L" + lower.map((p) => p.join(",")).join("L") + "Z";
-      svg.appendChild(make("path", { d: bandPath, fill: "#cfdcf7", opacity: "0.55" }));
+      svg.appendChild(make("path", { d: bandPath, fill: "#6870fa", opacity: "0.55" }));
     }
 
     const linePath = (values, offset) =>
@@ -292,14 +329,14 @@
     svg.appendChild(
       make("path", {
         d: linePath(history.values, 0),
-        fill: "none", stroke: "#55617a", "stroke-width": 2,
+        fill: "none", stroke: "#9aa8bd", "stroke-width": 2,
         "stroke-linejoin": "round", "stroke-linecap": "round",
       })
     );
     svg.appendChild(
       make("path", {
         d: linePath(forecast.values, histIndex),
-        fill: "none", stroke: "#1c5fd4", "stroke-width": 2.2,
+        fill: "none", stroke: "#4cceac", "stroke-width": 2.2,
         "stroke-dasharray": "5 4", "stroke-linejoin": "round",
       })
     );
@@ -308,7 +345,7 @@
     svg.appendChild(
       make("line", {
         x1: x(histIndex), x2: x(histIndex), y1: pad.top, y2: pad.top + innerH,
-        stroke: "#cfd5e1", "stroke-width": 1, "stroke-dasharray": "3 3",
+        stroke: "#3a4a67", "stroke-width": 1, "stroke-dasharray": "3 3",
       })
     );
 
