@@ -10,6 +10,7 @@
   const deliveryBtn = document.getElementById("delivery-btn");
   const errorBox = document.getElementById("error-box");
   const progress = document.getElementById("progress");
+  const progressText = progress.querySelector("span");
   const results = document.getElementById("results");
 
   const fa = new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 0 });
@@ -26,6 +27,15 @@
   function showError(message) {
     errorBox.textContent = message;
     errorBox.hidden = false;
+  }
+
+  function setBusy(on, message) {
+    progress.hidden = !on;
+    if (progressText) {
+      progressText.textContent = message || "در حال پردازش فایل و اجرای بک‌تست…";
+    }
+    submitBtn.disabled = on;
+    deliveryBtn.disabled = on;
   }
 
   function clearError() {
@@ -87,7 +97,7 @@
     body.append("horizon", document.getElementById("horizon").value);
     body.append("model", document.getElementById("model").value);
 
-    deliveryBtn.disabled = true;
+    setBusy(true, "در حال ساخت فایل تحویل…");
     try {
       const response = await fetch("/api/delivery", { method: "POST", body });
       if (!response.ok) {
@@ -106,7 +116,7 @@
     } catch (error) {
       showError(error.message || "خطای نامشخص در ساخت فایل تحویل.");
     } finally {
-      deliveryBtn.disabled = false;
+      setBusy(false);
     }
   });
 
@@ -124,8 +134,7 @@
     body.append("horizon", document.getElementById("horizon").value);
     body.append("model", document.getElementById("model").value);
 
-    submitBtn.disabled = true;
-    progress.hidden = false;
+    setBusy(true, "در حال خواندن فایل، اعتبارسنجی داده و اجرای بک‌تست…");
     results.hidden = true;
 
     try {
@@ -140,8 +149,7 @@
     } catch (error) {
       showError(error.message || "خطای نامشخص در پردازش فایل.");
     } finally {
-      submitBtn.disabled = false;
-      progress.hidden = true;
+      setBusy(false);
     }
   });
 
