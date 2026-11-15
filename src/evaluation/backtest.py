@@ -140,6 +140,87 @@ def summarize(backtest_frame: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def backtest_global(
+    frame: pd.DataFrame,
+    config: BacktestConfig | None = None,
+    *,
+    global_config=None,
+) -> pd.DataFrame:
+    """Rolling-origin backtest of the global model.
+
+    The global model trains *across* entities, so it cannot use
+    ``backtest_entity``: one fit per origin produces the path for every entity
+    at once. The model is refitted from scratch on data up to the origin, so
+    the same no-leakage guarantee holds as in the per-entity backtest.
+    """
+    from src.models.global_model import GlobalConfig, GlobalModel
+
+    cfg = config or BacktestConfig()
+    nested = frame[frame["successful_orders"].notna()].copy()
+    nested["date"] = pd.to_datetime(nested["date"])
+    if nested.empty:
+        return pd.DataFrame(
+            columns=[
+                "forecast_origin",
+                "target_date",
+                "horizon",
+                "yhat",
+                "actual",
+                "model_name",
+                "entity_id",
+            ]
+        )
+
+    gcfg = global_config or GlobalConfig(
+        horizon=cfg.horizon,
+        min_train_days=min(cfg.min_train_days, 42),
+    )
+    actuals = nested.set_index(["date", "entity_id"])["successful_orders"]
+    origins = make_origins(list(nested["date"].unique()), cfg)
+
+    rows: list[dict] = []
+    for origin in origins:
+        train = nested[nested["date"] <= origin]
+        if train["date"].nunique() < cfg.min_train_days:
+            continue
+        try:
+            model = GlobalModel(gcfg).fit(train, horizon=cfg.horizon)
+            paths = model.predict(train, horizon=cfg.horizon)
+        except ValueError:
+            continue
+        origin_date = origin.date()
+        for entity_id, path in paths.items():
+            for step, value in enumerate(path, start=1):
+                target = origin + pd.Timedelta(days=step)
+                key = (target, entity_id)
+                if key not in actuals.index:
+                    continue
+                rows.append(
+                    {
+                        "forecast_origin": origin_date,
+                        "target_date": target.date(),
+                        "horizon": step,
+                        "yhat": float(value),
+                        "actual": float(actuals.loc[key]),
+                        "model_name": "global_ml",
+                        "entity_id": entity_id,
+                    }
+                )
+    if not rows:
+        return pd.DataFrame(
+            columns=[
+                "forecast_origin",
+                "target_date",
+                "horizon",
+                "yhat",
+                "actual",
+                "model_name",
+                "entity_id",
+            ]
+        )
+    return pd.DataFrame(rows)
+
+
 def _horizon_bucket(horizon: int) -> str:
     if horizon <= 1:
         return "D+1"

@@ -128,3 +128,19 @@ def test_to_records_is_json_safe(master, mart, context):
     assert isinstance(records[0]["forecast_origin"], str)
     assert isinstance(records[0]["target_date"], str)
     assert isinstance(records[0]["yhat"], float)
+
+
+def test_jointly_fitted_model_accepts_one_callable_per_entity(master, mart, context):
+    """A shared fit hands over a bare callable, not a ``{name: callable}`` map."""
+    from src.models.baselines import ForecastResult
+
+    def shared(series: pd.Series, h: int) -> ForecastResult:
+        return ForecastResult("global_ml", np.full(h, float(series.iloc[-1])))
+
+    per_entity = {e: shared for e in ("FASHION", "GOLD", "V001")}
+    out = run_forecast(
+        mart, master, {}, context=context, horizon=4, entity_forecasters=per_entity
+    )
+    assert set(out["model_name"]) == {"global_ml"}
+    assert out["horizon"].max() == 4
+    assert (out["yhat"] >= 0).all()

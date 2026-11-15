@@ -312,6 +312,7 @@
       ets: "ETS",
       drift: "روند خطی",
       calendar_profile: "پروفایل تقویم شمسی",
+      global_ml: "مدل سراسری ML",
     };
     return labels[name] || name;
   }

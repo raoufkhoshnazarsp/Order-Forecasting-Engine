@@ -17,10 +17,18 @@ import pandas as pd
 from src import config
 from src.data_mart.entity_master import EntityMaster
 from src.data_mart.orders import build_daily_mart, validate_total_reconciliation
-from src.evaluation.backtest import BacktestConfig, backtest, horizon_accuracy, summarize
+from src.evaluation.backtest import (
+    BacktestConfig,
+    backtest,
+    backtest_global,
+    horizon_accuracy,
+    summarize,
+)
 from src.evaluation.report import build_backtest_report
 from src.ingestion.excel import ExcelLoadResult, load_workbook
 from src.models.baselines import BASELINES, moving_average
+from src.models.global_model import MODEL_NAME as GLOBAL_MODEL
+from src.models.global_model import global_forecasters
 from src.serving.gmv import combine_gmv, forecast_aov, has_gmv, validate_gmv
 from src.serving.service import RunContext, run_forecast
 
@@ -55,6 +63,7 @@ class PipelineResult:
     total_last_actual_aov: float | None = None
     dropped_partial_days: list[str] = field(default_factory=list)
     backtest_report: dict[str, Any] = field(default_factory=dict)
+    global_model: dict[str, Any] = field(default_factory=dict)
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -80,6 +89,7 @@ class PipelineResult:
             "dropped_partial_days": self.dropped_partial_days,
             "backtest_ranking": self.backtest_ranking,
             "backtest_report": self.backtest_report,
+            "global_model": self.global_model,
             "warnings": self.warnings,
             "sheets": self.sheet_reports,
         }
@@ -181,6 +191,32 @@ def _drop_partial_last_day(
     return kept, [dropped]
 
 
+def _global_diagnostics(global_bt: pd.DataFrame) -> dict[str, Any]:
+    """Explain which backend ran and how much evidence backed it.
+
+    The global model is only trustworthy if the user can see whether it was
+    ridge or LightGBM, on how many origins, and how confident the fit was.
+    """
+    if global_bt is None or global_bt.empty:
+        return {}
+    origins = int(global_bt["forecast_origin"].nunique())
+    return {
+        "model": GLOBAL_MODEL,
+        "backend": "lightgbm" if _has_lightgbm() else "ridge",
+        "origins": origins,
+        "points": int(len(global_bt)),
+        "low_confidence": origins < 3,
+    }
+
+
+def _has_lightgbm() -> bool:
+    try:
+        import lightgbm  # noqa: F401
+    except Exception:  # noqa: BLE001
+        return False
+    return True
+
+
 def run_pipeline(
     workbook_path: str | Path,
     *,
@@ -254,18 +290,30 @@ def run_pipeline(
 
     ranking: list[dict[str, Any]] = []
     backtest_report: dict[str, Any] = {}
+    global_fit: dict[str, Any] = {}
     selected = model
+    bt_config = BacktestConfig(
+        horizon=min(horizon, 30), step=backtest_step, min_train_days=min_train_days
+    )
     if run_backtest:
         try:
-            bt = backtest(
-                observed_rows,
-                BASELINES,
-                BacktestConfig(horizon=min(horizon, 30), step=backtest_step,
-                               min_train_days=min_train_days),
-            )
+            bt = backtest(observed_rows, BASELINES, bt_config)
         except Exception as exc:  # noqa: BLE001 - backtest is advisory, never blocks
             bt = pd.DataFrame()
             warnings.append(f"Backtest skipped: {exc}")
+        # The global model trains across entities, so it has its own loop.
+        # A failure here must not cost the user the baseline comparison.
+        try:
+            global_bt = backtest_global(observed_rows, bt_config)
+            if not global_bt.empty:
+                bt = (
+                    global_bt
+                    if bt.empty
+                    else pd.concat([bt, global_bt], ignore_index=True)
+                )
+        except Exception as exc:  # noqa: BLE001
+            global_bt = pd.DataFrame()
+            warnings.append(f"Global model backtest skipped: {exc}")
         if not bt.empty:
             scorecard = summarize(bt)
             overall = (
@@ -283,26 +331,39 @@ def run_pipeline(
             backtest_report = build_backtest_report(
                 bt, horizon=min(horizon, 30)
             ).as_dict()
+            global_fit = _global_diagnostics(global_bt)
     if selected == "auto":
         selected = "seasonal_naive"
         warnings.append(
             "Not enough history for a model comparison; seasonal naive was used."
         )
-    if selected not in BASELINES:
+    if selected != GLOBAL_MODEL and selected not in BASELINES:
         raise PipelineError(f"Unknown model: {selected}")
 
     context = RunContext(
         forecast_run_id=f"run_{max(observed):%Y%m%d}_{datetime.now():%H%M%S}",
         forecast_origin=max(observed),
         model_name=selected,
-        model_version=f"baseline_{selected}_v1",
-        feature_version="features_v1",
+        model_version=(
+            f"global_{global_fit.get('backend', 'ridge')}_v1"
+            if selected == GLOBAL_MODEL
+            else f"baseline_{selected}_v1"
+        ),
+        feature_version="features_v2" if selected == GLOBAL_MODEL else "features_v1",
         data_snapshot_id=snapshot_id,
     )
-    forecast = run_forecast(
-        observed_rows, master, {selected: BASELINES[selected]},
-        context=context, horizon=horizon,
-    )
+    if selected == GLOBAL_MODEL:
+        entity_forecasters = global_forecasters(observed_rows, horizon=horizon)
+        forecast = run_forecast(
+            observed_rows, master, {},
+            context=context, horizon=horizon,
+            entity_forecasters=entity_forecasters,
+        )
+    else:
+        forecast = run_forecast(
+            observed_rows, master, {selected: BASELINES[selected]},
+            context=context, horizon=horizon,
+        )
 
     total_rows = forecast[forecast["entity_id"] == master.total_id()].set_index("horizon")
     total_forecast = {
@@ -376,6 +437,7 @@ def run_pipeline(
         total_forecast=total_forecast,
         backtest_ranking=ranking,
         backtest_report=backtest_report,
+        global_model=global_fit,
         warnings=warnings,
         forecast=forecast,
         mart=mart,

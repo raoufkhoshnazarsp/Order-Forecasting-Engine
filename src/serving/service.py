@@ -6,6 +6,7 @@ column names.
 
 from __future__ import annotations
 
+import collections.abc
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Mapping
@@ -85,8 +86,15 @@ def run_forecast(
     reconciliation_method: str = "bottom_up",
     z_80: float = 1.2816,
     z_90: float = 1.6449,
+    entity_forecasters: Mapping[str, Mapping[str, object]] | None = None,
 ) -> pd.DataFrame:
-    """Produce a reconciled, coherent daily forecast path for D+1..D+horizon."""
+    """Produce a reconciled, coherent daily forecast path for D+1..D+horizon.
+
+    ``entity_forecasters`` exists for models that are fitted jointly across
+    entities (the global model): each entity has its own slice of one shared
+    fit, so it cannot be expressed as a single callable. When it is given, the
+    entity's own forecasters take precedence over ``forecasters``.
+    """
     observed = mart[mart["quality_flag"].eq("OBSERVED") & mart["successful_orders"].notna()]
     observed = observed[observed["entity_type"].isin(["VERTICAL", "VENTURE"])]
     if observed.empty:
@@ -104,8 +112,19 @@ def run_forecast(
         if series.empty:
             continue
         sigma = residual_sigma(series, horizon)
-        for name, forecaster in forecasters.items():
+        chosen = forecasters
+        bare = False
+        if entity_forecasters and entity.entity_id in entity_forecasters:
+            candidate = entity_forecasters[entity.entity_id]
+            # A jointly fitted model hands over one callable per entity; a
+            # baseline hands over a ``{name: callable}`` mapping.
+            bare = not isinstance(candidate, collections.abc.Mapping)
+            chosen = {context.model_name: candidate} if bare else candidate
+        for name, forecaster in chosen.items():
             result = forecast_entity(series, forecaster, horizon)
+            if bare:
+                # The model names itself; the stored context name is a fallback.
+                name = getattr(result, "model_name", name) or name
             values = np.clip(np.asarray(result.values, dtype="float64"), 0, None)
             origin_ts = pd.Timestamp(context.forecast_origin)
             steps = np.arange(1, horizon + 1)
