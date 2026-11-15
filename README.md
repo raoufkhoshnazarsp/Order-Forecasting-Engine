@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](#)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688?logo=fastapi&logoColor=white)](#)
-[![Tests](https://img.shields.io/badge/tests-159%20passing-2ea44f)](#-تستها)
+[![Tests](https://img.shields.io/badge/tests-173%20passing-2ea44f)](#-تستها)
 [![CI](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/ci.yml)
 [![Pages](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/pages.yml/badge.svg)](https://raoufkhoshnazarsp.github.io/Order-Forecasting-Engine/)
 [![License](https://img.shields.io/badge/license-proprietary-6b7280)](#)
@@ -150,6 +150,30 @@ python scripts/forecast_from_excel.py --template data/template.xlsx
 - فهرست هشدارها و برگه‌های خوانده‌شده
 
 دسترس‌پذیری: ناوبری با کیبورد، `skip-link`، برچسب‌های ARIA، کنتراست کافی و احترام به `prefers-reduced-motion`.
+
+---
+
+## 📊 داشبورد مقایسه‌ای (`/comparison`)
+
+یک صفحهٔ مستقل که دو سؤال را کنار هم می‌گذارد:
+
+1. **گذشته:** سفارش، GMV و AOV هر ورتیکال در ۳ تا ۱۲ ماه کامل گذشته، با سهم و رشد ماه‌به‌ماه.
+2. **ماه آینده:** سه سناریو برای هر ورتیکال و برای `VERTICALS`.
+
+سناریوها **دستی انتخاب نمی‌شوند**؛ از انحراف معیار خطای بک‌تست همان ورتیکال ساخته می‌شوند:
+
+```
+بدبینانه   = پیش‌بینی × (1 − 1.6449·σ)
+واقع‌بینانه = پیش‌بینی
+خوش‌بینانه = پیش‌بینی × (1 + 1.6449·σ)
+```
+
+`σ` نسبی است، سقف ۶۰٪ دارد، و `VERTICALS` در هر سناریو جمع همان ۷ ورتیکال است.
+اگر بک‌تست کافی نباشد، هر سه سناریو برابر پیش‌بینی نقطه‌ای می‌شوند و داشبورد
+برچسب «اعتبار کم» می‌گیرد — عدد ساختگی ساخته نمی‌شود.
+
+اندپوینت: `POST /api/comparison` (نیازمند توکن کیفیت) · صفحه: `GET /comparison`
+· تست: `tests/test_comparison.py`
 
 ---
 
@@ -321,7 +345,7 @@ data/calendar/
   dim_date.csv.gz         جدول تقویم شمسی (۱۸٬۱۸۴ روز)
 
 sql/                      قالب‌های SQL اختیاری برای آینده
-tests/                    ۱۵۹ تست
+tests/                    ۱۷۳ تست
 ```
 
 ---
@@ -436,7 +460,7 @@ TOTAL = Σ(VERTICAL) + Σ(VENTURE)
 ## ✅ تست‌ها
 
 ```bash
-python -m pytest          # ۱۵۹ تست
+python -m pytest          # ۱۷۳ تست
 python scripts/smoke_run.py   # اجرای سرتاسری روی دادهٔ مصنوعی
 ```
 
@@ -451,6 +475,7 @@ python scripts/smoke_run.py   # اجرای سرتاسری روی دادهٔ مص
 | `test_target.py` | گاردهای تعریف تارگت، امنیت SQL |
 | `test_sql_contract.py` | قرارداد قالب‌های SQL اختیاری |
 | `test_gmv_calendar.py` | ساختار `daily_metrics`، ریاضی AOV/GMV، روز ناقص، جدول تقویم |
+| `test_comparison.py` | داشبورد مقایسه‌ای: ماه‌های کامل، سه سناریو، جمع ورتیکال‌ها |
 | `test_backtest_report.py` | گزارش بک‌تست: رتبه‌بندی، پنجره‌ها، دورهٔ آزمون، پوشش بازهٔ ۹۰٪ |
 | `test_horizon.py` | افق تا پایان ماه میلادی بعد، سقف ۶۱ روز، محدودسازی با تاریخچهٔ کوتاه |
 | `test_quality_gate.py` | دروازهٔ کیفیت داده: ۱۰ بررسی، توکن تأیید، مسدودسازی خطا |

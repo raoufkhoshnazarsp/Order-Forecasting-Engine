@@ -301,6 +301,8 @@ main {
 .dot-actual { background: #9aa8bd; }
 .dot-forecast { background: var(--green); }
 .dot-band { background: rgba(104, 112, 250, .35); }
+.dot-pess { background: var(--danger); }
+.dot-opt { background: var(--brand); }
 
 .badge {
   font-size: .73rem; font-weight: 700; padding: .2rem .7rem;

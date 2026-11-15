@@ -24,6 +24,7 @@ from src.serving.delivery import (
     build_delivery_frame,
     validate_delivery,
 )
+from src.serving.comparison import ComparisonError, build_comparison
 from src.serving.quality import QualityGateError, check_workbook, require_quality
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -48,6 +49,11 @@ def _render(name: str, **context) -> HTMLResponse:
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     return _render("index.html", year=datetime.now().year)
+
+
+@app.get("/comparison", response_class=HTMLResponse)
+def comparison_page() -> HTMLResponse:
+    return _render("comparison.html", year=datetime.now().year)
 
 
 @app.get("/healthz")
@@ -305,6 +311,48 @@ async def delivery(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers,
     )
+
+
+@app.post("/api/comparison")
+async def comparison(
+    file: UploadFile = File(...),
+    horizon: str = Form("auto"),
+    model: str = Form("auto"),
+    months: int = Form(6),
+    quality_token: str = Form(""),
+) -> JSONResponse:
+    """Past months plus three scenarios for the next calendar month."""
+    saved = await _save_upload(file)
+    requested = _requested_horizon(horizon)
+
+    try:
+        report = require_quality(saved, quality_token, horizon=requested)
+    except QualityGateError as exc:
+        raise HTTPException(status_code=428, detail=str(exc)) from exc
+
+    plan = report.plan or {}
+    horizon_days = int(plan.get("horizon") or 30)
+    origin = report.origin
+
+    try:
+        result = build_comparison(
+            report.facts,
+            origin=origin,
+            horizon=horizon_days,
+            months=max(1, min(int(months or 6), 12)),
+            model=model,
+        )
+    except ComparisonError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500, detail=f"ساخت داشبورد مقایسه‌ای با خطا مواجه شد: {exc}"
+        ) from exc
+
+    payload = result.as_dict()
+    payload["horizon_plan"] = plan
+    payload["window"] = report.window
+    return JSONResponse(payload)
 
 
 @app.get("/api/sample")

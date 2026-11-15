@@ -106,3 +106,37 @@ def test_forecast_runs_once_the_token_matches():
     body = json.loads(response.body)
     assert body["horizon"] == 30
     assert body["entities_table"]
+
+
+def test_comparison_endpoint_requires_the_quality_token():
+    import asyncio
+
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            api.comparison(_Upload("data.xlsx", workbook_bytes()), "auto", "auto", 6, "")
+        )
+    assert exc.value.status_code == 428
+
+
+def test_comparison_endpoint_returns_months_and_scenarios():
+    import asyncio
+    import json
+
+    payload = workbook_bytes(days=240)
+    report = asyncio.run(api.quality(_Upload("data.xlsx", payload), "auto"))
+    token = json.loads(report.body)["token"]
+
+    response = asyncio.run(
+        api.comparison(_Upload("data.xlsx", payload), "auto", "auto", 3, token)
+    )
+    body = json.loads(response.body)
+    assert body["past_months"]
+    assert body["next_month"]
+    assert {r["scenario"] for r in body["scenarios"]} == {
+        "pessimistic",
+        "realistic",
+        "optimistic",
+    }
+    assert body["horizon_plan"]["horizon"] > 0
