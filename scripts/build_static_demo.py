@@ -234,13 +234,25 @@ def render(result, out_dir: Path) -> Path:
         for r in rows
     )
 
+    report = summary.get("backtest_report") or {}
+    report_models = report.get("models") or summary["backtest_ranking"]
     model_rows = "".join(
         f'<tr class="{"is-total" if i == 0 else ""}">'
         f'<td>{html.escape(m["model"])}</td>'
         f'<td>{fa_number(m["wape"] * 100, 1)}٪</td>'
-        f'<td>{fa_number(m["bias"] * 100, 1)}٪</td></tr>'
-        for i, m in enumerate(summary["backtest_ranking"])
-    ) or '<tr><td colspan="3" class="empty">تاریخچه کافی برای بک‌تست نبود.</td></tr>'
+        f'<td>{fa_number(m["bias"] * 100, 1)}٪</td>'
+        f'<td>{fa_number(m["coverage_90"] * 100, 1) + "٪" if m.get("coverage_90") is not None else "—"}</td>'
+        f'<td>{fa_number(m["windows"]) if m.get("windows") is not None else "—"}</td>'
+        f'<td>{fa_number(m["points"]) if m.get("points") is not None else "—"}</td></tr>'
+        for i, m in enumerate(report_models)
+    ) or '<tr><td colspan="6" class="empty">تاریخچه کافی برای بک‌تست نبود.</td></tr>'
+    backtest_meta = ""
+    if report.get("windows"):
+        backtest_meta = (
+            f'{fa_number(report["windows"])} پنجره · دورهٔ آزمون '
+            f'{report["test_start"]} تا {report["test_end"]} · '
+            f'{fa_number(report["points"])} نقطه · افق {fa_number(report["horizon"])} روز'
+        )
 
     warning_items = "".join(
         f'<li class="is-warn">{html.escape(w)}</li>' for w in summary["warnings"]
@@ -338,10 +350,14 @@ def render(result, out_dir: Path) -> Path:
       <div class="card-head"><h3>کیفیت داده و مدل</h3></div>
       <div class="split">
         <div>
-          <h4>رتبه‌بندی مدل‌ها (میانگین بک‌تست)</h4>
+          <h4>اعتبار مدل‌ها (بک‌تست rolling-origin)</h4>
+          <p class="muted">{backtest_meta}</p>
           <div class="table-wrap">
             <table class="table table-compact">
-              <thead><tr><th scope="col">مدل</th><th scope="col">WAPE</th><th scope="col">Bias</th></tr></thead>
+              <thead><tr>
+                <th scope="col">مدل</th><th scope="col">WAPE</th><th scope="col">Bias</th>
+                <th scope="col">پوشش بازهٔ ۹۰٪</th><th scope="col">پنجره</th><th scope="col">نقطه</th>
+              </tr></thead>
               <tbody>{model_rows}</tbody>
             </table>
           </div>

@@ -18,6 +18,7 @@ from src import config
 from src.data_mart.entity_master import EntityMaster
 from src.data_mart.orders import build_daily_mart, validate_total_reconciliation
 from src.evaluation.backtest import BacktestConfig, backtest, horizon_accuracy, summarize
+from src.evaluation.report import build_backtest_report
 from src.ingestion.excel import ExcelLoadResult, load_workbook
 from src.models.baselines import BASELINES, moving_average
 from src.serving.gmv import combine_gmv, forecast_aov, has_gmv, validate_gmv
@@ -53,6 +54,7 @@ class PipelineResult:
     total_last_actual_gmv: float | None = None
     total_last_actual_aov: float | None = None
     dropped_partial_days: list[str] = field(default_factory=list)
+    backtest_report: dict[str, Any] = field(default_factory=dict)
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -77,6 +79,7 @@ class PipelineResult:
             },
             "dropped_partial_days": self.dropped_partial_days,
             "backtest_ranking": self.backtest_ranking,
+            "backtest_report": self.backtest_report,
             "warnings": self.warnings,
             "sheets": self.sheet_reports,
         }
@@ -250,6 +253,7 @@ def run_pipeline(
         )
 
     ranking: list[dict[str, Any]] = []
+    backtest_report: dict[str, Any] = {}
     selected = model
     if run_backtest:
         try:
@@ -276,6 +280,9 @@ def run_pipeline(
             ]
             if model == "auto" and ranking:
                 selected = ranking[0]["model"]
+            backtest_report = build_backtest_report(
+                bt, horizon=min(horizon, 30)
+            ).as_dict()
     if selected == "auto":
         selected = "seasonal_naive"
         warnings.append(
@@ -368,6 +375,7 @@ def run_pipeline(
         total_last_actual=last_total_value,
         total_forecast=total_forecast,
         backtest_ranking=ranking,
+        backtest_report=backtest_report,
         warnings=warnings,
         forecast=forecast,
         mart=mart,

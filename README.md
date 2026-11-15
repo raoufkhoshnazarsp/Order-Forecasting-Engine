@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](#)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688?logo=fastapi&logoColor=white)](#)
-[![Tests](https://img.shields.io/badge/tests-151%20passing-2ea44f)](#-تستها)
+[![Tests](https://img.shields.io/badge/tests-159%20passing-2ea44f)](#-تستها)
 [![CI](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/ci.yml)
 [![Pages](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/pages.yml/badge.svg)](https://raoufkhoshnazarsp.github.io/Order-Forecasting-Engine/)
 [![License](https://img.shields.io/badge/license-proprietary-6b7280)](#)
@@ -146,7 +146,7 @@ python scripts/forecast_from_excel.py --template data/template.xlsx
 - کارت‌های KPI: آخرین مقدار واقعی، D+1، D+7، انتهای افق، **GMV فردا**، **AOV فردا**، تعداد موجودیت‌ها
 - نمودار SVG بومی با کلید انتخاب شاخص: **سفارش / GMV / AOV** — تاریخچهٔ واقعی + مسیر پیش‌بینی + باند ۹۰٪
 - جدول پیش‌بینی به تفکیک موجودیت: سفارش، GMV و AOV با مقادیر گردشدهٔ سازگار با کل
-- جدول رتبه‌بندی مدل‌ها بر اساس WAPE و Bias
+- جدول اعتبار مدل‌ها: WAPE، Bias، **پوشش تجربی بازهٔ ۹۰٪**، تعداد پنجره‌های بک‌تست و تعداد نقاط، همراه با دورهٔ آزمون
 - فهرست هشدارها و برگه‌های خوانده‌شده
 
 دسترس‌پذیری: ناوبری با کیبورد، `skip-link`، برچسب‌های ARIA، کنتراست کافی و احترام به `prefers-reduced-motion`.
@@ -321,7 +321,7 @@ data/calendar/
   dim_date.csv.gz         جدول تقویم شمسی (۱۸٬۱۸۴ روز)
 
 sql/                      قالب‌های SQL اختیاری برای آینده
-tests/                    ۱۵۱ تست
+tests/                    ۱۵۹ تست
 ```
 
 ---
@@ -436,7 +436,7 @@ TOTAL = Σ(VERTICAL) + Σ(VENTURE)
 ## ✅ تست‌ها
 
 ```bash
-python -m pytest          # ۱۵۱ تست
+python -m pytest          # ۱۵۹ تست
 python scripts/smoke_run.py   # اجرای سرتاسری روی دادهٔ مصنوعی
 ```
 
@@ -451,6 +451,7 @@ python scripts/smoke_run.py   # اجرای سرتاسری روی دادهٔ مص
 | `test_target.py` | گاردهای تعریف تارگت، امنیت SQL |
 | `test_sql_contract.py` | قرارداد قالب‌های SQL اختیاری |
 | `test_gmv_calendar.py` | ساختار `daily_metrics`، ریاضی AOV/GMV، روز ناقص، جدول تقویم |
+| `test_backtest_report.py` | گزارش بک‌تست: رتبه‌بندی، پنجره‌ها، دورهٔ آزمون، پوشش بازهٔ ۹۰٪ |
 | `test_horizon.py` | افق تا پایان ماه میلادی بعد، سقف ۶۱ روز، محدودسازی با تاریخچهٔ کوتاه |
 | `test_quality_gate.py` | دروازهٔ کیفیت داده: ۱۰ بررسی، توکن تأیید، مسدودسازی خطا |
 | `test_quality_api.py` | الزام توکن کیفیت در `/api/forecast` و `/api/delivery` |

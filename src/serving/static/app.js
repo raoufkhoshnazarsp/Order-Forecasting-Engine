@@ -284,7 +284,7 @@
     });
     renderChart(data.chart, currentMetric);
     renderEntityTable(data.entities_table);
-    renderModelTable(data.backtest_ranking);
+    renderModelTable(data.backtest_report, data.backtest_ranking);
     renderWarnings(data.warnings);
     renderSheets(data.sheets);
     document.getElementById("chart-badge").textContent =
@@ -512,24 +512,53 @@
     });
   }
 
-  function renderModelTable(ranking) {
+  function renderModelTable(report, ranking) {
     const tbody = document.querySelector("#model-table tbody");
+    const meta = document.getElementById("backtest-meta");
+    const note = document.getElementById("backtest-note");
     tbody.innerHTML = "";
-    if (!ranking || !ranking.length) {
-      tbody.innerHTML = '<tr><td colspan="3" class="empty">تاریخچه کافی برای بک‌تست نبود.</td></tr>';
+    meta.textContent = "";
+    note.textContent = "";
+
+    const rows = (report && report.models && report.models.length)
+      ? report.models
+      : (ranking || []).map((r) => ({ ...r, coverage_90: null, windows: null, points: null }));
+
+    if (!rows.length) {
+      tbody.innerHTML =
+        '<tr><td colspan="6" class="empty">تاریخچه کافی برای بک‌تست نبود.</td></tr>';
+      if (report && report.note) note.textContent = report.note;
       return;
     }
-    ranking.forEach((row, index) => {
+
+    if (report && report.windows) {
+      meta.textContent =
+        `${formatNumber(report.windows)} پنجره · دورهٔ آزمون ${report.test_start} تا ` +
+        `${report.test_end} · ${formatNumber(report.points)} نقطه · افق ${formatNumber(report.horizon)} روز`;
+    }
+
+    rows.forEach((row, index) => {
       const tr = document.createElement("tr");
       if (index === 0) tr.className = "is-total";
-      [modelLabel(row.model), fa1.format(row.wape * 100) + "٪", fa1.format(row.bias * 100) + "٪"]
-        .forEach((value) => {
-          const td = document.createElement("td");
-          td.textContent = value;
-          tr.appendChild(td);
-        });
+      const coverage = row.coverage_90 === null || row.coverage_90 === undefined
+        ? "—"
+        : fa1.format(row.coverage_90 * 100) + "٪";
+      [
+        modelLabel(row.model),
+        fa1.format(row.wape * 100) + "٪",
+        fa1.format(row.bias * 100) + "٪",
+        coverage,
+        row.windows === null || row.windows === undefined ? "—" : formatNumber(row.windows),
+        row.points === null || row.points === undefined ? "—" : formatNumber(row.points),
+      ].forEach((value) => {
+        const td = document.createElement("td");
+        td.textContent = value;
+        tr.appendChild(td);
+      });
       tbody.appendChild(tr);
     });
+
+    if (report && report.note) note.textContent = report.note;
   }
 
   function renderWarnings(warnings) {

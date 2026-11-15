@@ -212,13 +212,22 @@
           <div class="card-head"><h3>کیفیت داده و مدل</h3></div>
           <div class="split">
             <div>
-              <h4>رتبه‌بندی مدل‌ها (میانگین بک‌تست)</h4>
+              <h4>اعتبار مدل‌ها (بک‌تست rolling-origin)</h4>
+              <p class="muted" id="backtest-meta"></p>
               <div class="table-wrap">
                 <table class="table table-compact" id="model-table">
-                  <thead><tr><th scope="col">مدل</th><th scope="col">WAPE</th><th scope="col">Bias</th></tr></thead>
+                  <thead><tr>
+                    <th scope="col">مدل</th>
+                    <th scope="col">WAPE</th>
+                    <th scope="col">Bias</th>
+                    <th scope="col">پوشش بازهٔ ۹۰٪</th>
+                    <th scope="col">پنجره</th>
+                    <th scope="col">نقطه</th>
+                  </tr></thead>
                   <tbody></tbody>
                 </table>
               </div>
+              <p class="muted" id="backtest-note"></p>
             </div>
             <div>
               <h4>هشدارها</h4>
