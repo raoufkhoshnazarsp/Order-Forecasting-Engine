@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 from src.ingestion.excel import ExcelInputError, load_category_facts
+from src.serving.horizon import history_days, plan_horizon, window_advice
 
 PASS, WARN, FAIL = "pass", "warn", "fail"
 _STATUS_RANK = {PASS: 0, WARN: 1, FAIL: 2}
@@ -64,6 +65,8 @@ class QualityReport:
     token: str
     origin: date | None = None
     days: int = 0
+    plan: dict | None = None
+    window: dict | None = None
 
     @property
     def status(self) -> str:
@@ -81,6 +84,8 @@ class QualityReport:
             "blocked": self.blocked,
             "origin": self.origin.isoformat() if self.origin else None,
             "days": self.days,
+            "plan": self.plan,
+            "window": self.window,
             "counts": {
                 s: sum(1 for c in self.checks if c.status == s)
                 for s in (PASS, WARN, FAIL)
@@ -291,8 +296,14 @@ def _check_aov(facts: pd.DataFrame) -> Check:
     )
 
 
-def check_workbook(path: str | Path, *, horizon: int = 30) -> QualityReport:
-    """Run every pre-flight check on a workbook and return the report."""
+def check_workbook(
+    path: str | Path, *, horizon: int | None = None
+) -> QualityReport:
+    """Run every pre-flight check on a workbook and return the report.
+
+    ``horizon=None`` means "to the end of next calendar month", resolved from
+    the last day in the file. An explicit value is honoured but capped.
+    """
     path = Path(path)
     token = hashlib.sha256(path.read_bytes()).hexdigest()[:32]
 
@@ -306,6 +317,12 @@ def check_workbook(path: str | Path, *, horizon: int = 30) -> QualityReport:
             token=token,
         )
 
+    days = history_days(facts)
+    origin_ts = facts["date"].max()
+    origin = origin_ts.date() if pd.notna(origin_ts) else None
+    plan = plan_horizon(origin, requested=horizon, history_days=days) if origin else None
+    effective = plan.horizon if plan else (horizon or 30)
+
     checks = [
         _check_columns(facts),
         _check_dates(facts),
@@ -315,21 +332,24 @@ def check_workbook(path: str | Path, *, horizon: int = 30) -> QualityReport:
         _check_continuity(facts),
         _check_partial_day(facts),
         _check_verticals(facts),
-        _check_history(facts, horizon),
+        _check_history(facts, effective),
         _check_aov(facts),
     ]
-    origin = facts["date"].max()
     return QualityReport(
         checks=checks,
         facts=facts,
         source=path.name,
         token=token,
-        origin=origin.date() if pd.notna(origin) else None,
-        days=int(facts["date"].nunique()),
+        origin=origin,
+        days=days,
+        plan=plan.as_dict() if plan else None,
+        window=window_advice(days),
     )
 
 
-def require_quality(path: str | Path, token: str | None, *, horizon: int = 30) -> QualityReport:
+def require_quality(
+    path: str | Path, token: str | None, *, horizon: int | None = None
+) -> QualityReport:
     """Re-run the gate and refuse to continue unless the user acknowledged it.
 
     The token is the hash of the exact file the user reviewed, so a different

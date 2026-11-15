@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](#)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688?logo=fastapi&logoColor=white)](#)
-[![Tests](https://img.shields.io/badge/tests-139%20passing-2ea44f)](#-تستها)
+[![Tests](https://img.shields.io/badge/tests-151%20passing-2ea44f)](#-تستها)
 [![CI](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/ci.yml)
 [![Pages](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/pages.yml/badge.svg)](https://raoufkhoshnazarsp.github.io/Order-Forecasting-Engine/)
 [![License](https://img.shields.io/badge/license-proprietary-6b7280)](#)
@@ -153,6 +153,31 @@ python scripts/forecast_from_excel.py --template data/template.xlsx
 
 ---
 
+## 📆 افق پیش‌بینی و بازهٔ دادهٔ ورودی
+
+افق پیش‌فرض دیگر «۳۰ روز» نیست؛ از خود داده محاسبه می‌شود:
+
+```
+مبدأ  = آخرین روز موجود در فایل
+هدف   = آخرین روز ماه میلادی بعد
+افق   = فاصلهٔ مبدأ تا هدف   (حداکثر ۶۱ روز)
+```
+
+مثال: داده تا ۲۰۲۶-۱۰-۲۸ → هدف ۲۰۲۶-۱۱-۳۰ → افق ۳۳ روز.
+
+| مورد | مقدار | دلیل |
+| --- | --- | --- |
+| حداقل مطلق | ۱۲۰ روز | دو پنجرهٔ بک‌تست ۳۰ روزه |
+| **توصیه‌شده** | **۴۰۰ روز (۱۳ ماه کامل)** | پوشش چرخهٔ سالانه و چند پنجرهٔ ۶۱ روزه |
+| سقف افق | ۶۱ روز | بدترین حالت: مبدأ اول ماه ۳۱ روزه |
+| تاریخچهٔ کوتاه | افق به ۳۱ روز | جلوگیری از برون‌یابی بی‌پشتوانه |
+
+افق درخواستی بزرگ‌تر از پایان ماه بعد به همان پایان ماه محدود می‌شود و دلیلش در
+`plan.reason` برگردانده می‌شود. در UI گزینهٔ «تا پایان ماه میلادی بعد» پیش‌فرض است و
+افق محاسبه‌شده همراه با تاریخ هدف در گزارش کیفیت داده نمایش داده می‌شود.
+
+---
+
 ## 🛡 دروازهٔ کیفیت داده
 
 هیچ محاسبه‌ای بدون تأیید کیفیت داده اجرا نمی‌شود. `POST /api/quality` فایل را می‌خواند و
@@ -296,7 +321,7 @@ data/calendar/
   dim_date.csv.gz         جدول تقویم شمسی (۱۸٬۱۸۴ روز)
 
 sql/                      قالب‌های SQL اختیاری برای آینده
-tests/                    ۱۳۹ تست
+tests/                    ۱۵۱ تست
 ```
 
 ---
@@ -411,7 +436,7 @@ TOTAL = Σ(VERTICAL) + Σ(VENTURE)
 ## ✅ تست‌ها
 
 ```bash
-python -m pytest          # ۱۳۹ تست
+python -m pytest          # ۱۵۱ تست
 python scripts/smoke_run.py   # اجرای سرتاسری روی دادهٔ مصنوعی
 ```
 
@@ -426,6 +451,7 @@ python scripts/smoke_run.py   # اجرای سرتاسری روی دادهٔ مص
 | `test_target.py` | گاردهای تعریف تارگت، امنیت SQL |
 | `test_sql_contract.py` | قرارداد قالب‌های SQL اختیاری |
 | `test_gmv_calendar.py` | ساختار `daily_metrics`، ریاضی AOV/GMV، روز ناقص، جدول تقویم |
+| `test_horizon.py` | افق تا پایان ماه میلادی بعد، سقف ۶۱ روز، محدودسازی با تاریخچهٔ کوتاه |
 | `test_quality_gate.py` | دروازهٔ کیفیت داده: ۱۰ بررسی، توکن تأیید، مسدودسازی خطا |
 | `test_quality_api.py` | الزام توکن کیفیت در `/api/forecast` و `/api/delivery` |
 | `test_ui_shell.py` | پنهان‌بودن متن پردازش و مقیاس فاصله |

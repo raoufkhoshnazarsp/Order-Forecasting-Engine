@@ -101,11 +101,11 @@
             <label class="field">
               <span>افق پیش‌بینی</span>
               <select id="horizon" name="horizon">
+                <option value="auto" selected>تا پایان ماه میلادی بعد</option>
                 <option value="7">۷ روز</option>
                 <option value="14">۱۴ روز</option>
-                <option value="30" selected>۳۰ روز</option>
+                <option value="30">۳۰ روز</option>
                 <option value="60">۶۰ روز</option>
-                <option value="90">۹۰ روز</option>
               </select>
             </label>
             <label class="field">
@@ -140,6 +140,7 @@
             <span class="badge" id="quality-status"></span>
           </div>
           <p class="muted" id="quality-summary"></p>
+          <p class="muted" id="quality-plan"></p>
           <ul class="check-list" id="quality-checks"></ul>
           <div class="quality-actions">
             <button type="button" class="btn btn-primary btn-sm" id="approve-btn" hidden>

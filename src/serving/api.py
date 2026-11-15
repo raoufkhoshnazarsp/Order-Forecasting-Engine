@@ -83,32 +83,47 @@ async def _save_upload(file: UploadFile) -> Path:
     return saved
 
 
+def _requested_horizon(raw: str | int | None) -> int | None:
+    """Empty or "auto" means "to the end of next calendar month"."""
+    if isinstance(raw, int):
+        return max(1, raw)
+    text = (raw or "").strip().lower()
+    if text in {"", "auto", "month"}:
+        return None
+    try:
+        return max(1, int(float(text)))
+    except ValueError:
+        return None
+
+
 @app.post("/api/quality")
 async def quality(
     file: UploadFile = File(...),
-    horizon: int = Form(30),
+    horizon: str = Form("auto"),
 ) -> JSONResponse:
     """Pre-flight gate: report every data check before anything is computed."""
     saved = await _save_upload(file)
-    horizon = max(1, min(int(horizon or 30), 90))
-    report = check_workbook(saved, horizon=horizon)
+    report = check_workbook(saved, horizon=_requested_horizon(horizon))
     return JSONResponse(report.as_dict())
 
 
 @app.post("/api/forecast")
 async def forecast(
     file: UploadFile = File(...),
-    horizon: int = Form(30),
+    horizon: str = Form("auto"),
     model: str = Form("auto"),
     quality_token: str = Form(""),
 ) -> JSONResponse:
     saved = await _save_upload(file)
-    horizon = max(1, min(int(horizon or 30), 90))
+    requested = _requested_horizon(horizon)
 
     try:
-        require_quality(saved, quality_token, horizon=horizon)
+        report = require_quality(saved, quality_token, horizon=requested)
     except QualityGateError as exc:
         raise HTTPException(status_code=428, detail=str(exc)) from exc
+
+    plan = report.plan or {}
+    horizon = int(plan.get("horizon") or 30)
 
     try:
         result = run_pipeline(saved, horizon=horizon, model=model)
@@ -123,6 +138,8 @@ async def forecast(
         ) from exc
 
     summary = result.summary()
+    summary["horizon_plan"] = plan
+    summary["window"] = report.window
     summary["chart"] = _chart_payload(result)
     summary["entities_table"] = _entity_table(result)
     return JSONResponse(summary)
@@ -230,7 +247,7 @@ def pd_date(value) -> str:
 @app.post("/api/delivery")
 async def delivery(
     file: UploadFile = File(...),
-    horizon: int = Form(30),
+    horizon: str = Form("auto"),
     model: str = Form("auto"),
     quality_token: str = Form(""),
 ) -> StreamingResponse:
@@ -240,12 +257,14 @@ async def delivery(
     covering ``horizon`` days after the last day present in the upload.
     """
     saved = await _save_upload(file)
-    horizon = max(1, min(int(horizon or 30), 90))
+    requested = _requested_horizon(horizon)
 
     try:
-        require_quality(saved, quality_token, horizon=horizon)
+        report = require_quality(saved, quality_token, horizon=requested)
     except QualityGateError as exc:
         raise HTTPException(status_code=428, detail=str(exc)) from exc
+
+    horizon = int((report.plan or {}).get("horizon") or 30)
 
     try:
         facts = load_category_facts(saved)
@@ -279,6 +298,7 @@ async def delivery(
         "Content-Disposition": f'attachment; filename="{filename}"',
         "X-Forecast-Model": result.model,
         "X-Forecast-Rows": str(len(result.frame)),
+        "X-Forecast-Target": (report.plan or {}).get("target", ""),
     }
     return StreamingResponse(
         buffer,

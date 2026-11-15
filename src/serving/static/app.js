@@ -13,6 +13,7 @@
   const gate = document.getElementById("quality-gate");
   const gateStatus = document.getElementById("quality-status");
   const gateSummary = document.getElementById("quality-summary");
+  const gatePlan = document.getElementById("quality-plan");
   const gateChecks = document.getElementById("quality-checks");
   const gateHint = document.getElementById("quality-hint");
   const errorBox = document.getElementById("error-box");
@@ -53,6 +54,7 @@
     qualityFileKey = null;
     gate.hidden = true;
     gateChecks.innerHTML = "";
+    gatePlan.textContent = "";
     approveBtn.hidden = true;
     gateHint.textContent = "";
     submitBtn.disabled = true;
@@ -70,6 +72,17 @@
     gateSummary.textContent =
       `${report.days} روز داده · ${counts.pass || 0} بررسی سالم · ` +
       `${counts.warn || 0} هشدار · ${counts.fail || 0} خطا`;
+
+    const plan = report.plan;
+    if (plan) {
+      gatePlan.textContent =
+        `افق: ${plan.horizon} روز — از ${plan.origin} تا ${plan.target}. ${plan.reason}`;
+    } else {
+      gatePlan.textContent = "";
+    }
+    if (report.window && report.window.message) {
+      gatePlan.textContent += " " + report.window.message;
+    }
 
     gateChecks.innerHTML = "";
     (report.checks || []).forEach((check) => {
