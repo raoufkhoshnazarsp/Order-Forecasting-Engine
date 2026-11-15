@@ -1,0 +1,35 @@
+# Target Definition — versioned business rule.
+# null == NOT YET APPROVED BY BUSINESS. Engine must refuse to run
+# production extraction while any required field is null.
+target_definition:
+  version: "target_v0_draft"
+  definition_status: DRAFT   # DRAFT | APPROVED
+
+  order_status: SETTLE
+  merchant_type: ONLINE
+  exclude_deleted: null     # true | false — pending approval
+  date_field: null          # registered_date | created_date — pending approval
+  payment_methods: all      # all | [<list>]
+  reversal_policy: null     # keep | exclude — pending approval
+
+  organic_rule:
+    field: voucher_discount_amount
+    operator: "== 0 OR IS NULL"
+
+scope:
+  verticals:
+    - DIGITAL
+    - FASHION
+    - FMCG
+    - GOLD
+    - H&B
+    - Home
+    - Services
+  venture_portfolio:
+    enabled: true
+  excluded_categories: []
+
+monetary:
+  source_unit: Rial
+  reporting_unit: Toman
+  divisor: 10

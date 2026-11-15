@@ -1,0 +1,17 @@
+pandas>=2.2
+numpy>=1.26
+pyyaml>=6.0
+clickhouse-connect>=0.8
+jdatetime>=5.0
+pyarrow>=15.0
+pytest>=8.0
+
+# Phase 3+ (heavy; install on the server, not in the dev container)
+# statsforecast>=1.7
+# mlforecast>=0.13
+# lightgbm>=4.0
+# hierarchicalforecast>=0.4
+# ruptures>=1.1
+# shap>=0.45
+# fastapi>=0.110
+# uvicorn>=0.29

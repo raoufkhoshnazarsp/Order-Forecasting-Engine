@@ -1,0 +1,45 @@
+project:
+  name: bnpl_forecast_engine
+  timezone: Asia/Tehran
+  frequency: D
+
+data:
+  source: clickhouse
+  history_years: 3
+  target: successful_orders
+
+forecast:
+  horizons: [1, 7, 30]
+  full_daily_path: true
+  interval_levels: [80, 90]
+
+hierarchy:
+  levels:
+    - total
+    - vertical
+    - venture
+  aggregation:
+    total:
+      - vertical
+      - venture
+
+models:
+  baseline:
+    - naive
+    - seasonal_naive
+    - moving_average
+    - ets
+    - auto_arima
+  primary:
+    - lightgbm
+  challenger:
+    - catboost
+
+evaluation:
+  method: rolling_origin
+  horizons: [1, 7, 30]
+  primary_metric: wape
+
+training:
+  retraining_frequency: weekly
+  production_promotion_requires_backtest: true

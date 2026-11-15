@@ -1,0 +1,32 @@
+calendar:
+  enabled: true
+  persian_calendar: true
+  holidays_required: true
+
+lags:
+  - 1
+  - 2
+  - 3
+  - 7
+  - 14
+  - 21
+  - 28
+  - 30
+  - 56
+  - 90
+  - 364
+
+rolling:
+  mean: [7, 14, 28, 30, 90]
+  std: [7, 14, 30]
+  min: [7]
+  max: [7]
+
+feature_availability:
+  weekday: FUTURE_KNOWN
+  holiday_flag: FUTURE_KNOWN
+  planned_budget: FUTURE_KNOWN
+  active_users: FUTURE_ESTIMATED
+  actual_spend: FUTURE_UNKNOWN
+  unconfirmed_campaign: SCENARIO_BASED
+  successful_orders: HISTORICAL

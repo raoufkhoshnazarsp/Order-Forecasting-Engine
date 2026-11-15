@@ -1,0 +1,32 @@
+# Hierarchy is built dynamically from the Entity Master (entity_master.csv),
+# never from a hardcoded venture count.
+entity_master_path: configs/entity_master.csv
+
+resolution:
+  total_entity_id: "TOTAL"
+  unmapped_policy: report   # report | fail — never silently drop
+  venture_vertical_value: "Snapp-Venture"
+  venture_category_value: "ventures"
+
+# Stable entity_id for each source vertical value.
+# The SQL returns the raw ``vertical`` value; this map converts it to the
+# stable id used by the Entity Master (names may change, ids may not).
+vertical_entity_map:
+  DIGITAL: DIGITAL
+  FASHION: FASHION
+  FMCG: FMCG
+  GOLD: GOLD
+  H&B: H_B
+  Home: HOME
+  Services: SERVICES
+
+leaf_entity_types:
+  - VERTICAL
+  - VENTURE
+
+reconciliation:
+  methods:
+    - bottom_up
+    - mintrace
+    - top_down
+  primary: bottom_up
