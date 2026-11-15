@@ -27,6 +27,7 @@
 - [پیکربندی](#-پیکربندی)
 - [تست‌ها](#-تستها)
 - [Docker](#-docker)
+- [استقرار و دموی آنلاین](#-استقرار-و-دموی-آنلاین)
 - [رودمپ](#-رودمپ)
 - [محدودیت‌ها و سؤال‌های باز](#-محدودیتها-و-سؤالهای-باز)
 
@@ -225,6 +226,7 @@ src/
 scripts/
   forecast_from_excel.py  ⭐ CLI اصلی
   smoke_run.py            اجرای سرتاسری روی دادهٔ مصنوعی
+  build_static_demo.py    ⭐ ساخت صفحهٔ استاتیک گزارش برای GitHub Pages
   discover_sources.py     کشف ClickHouse (اختیاری)
   extract_history.py      استخراج تاریخی (اختیاری)
   build_data_mart.py      ساخت mart از snapshot
@@ -375,6 +377,36 @@ docker compose up --build
 ```
 
 تصویر شامل healthcheck روی `/healthz` است و `artifacts/` و `reports/` را به‌صورت volume نگه می‌دارد.
+
+روی هر push به `main`، همان تصویر ساخته و در GitHub Container Registry منتشر می‌شود:
+
+```bash
+docker run -p 8000:8000 ghcr.io/raoufkhoshnazarsp/order-forecasting-engine:latest
+```
+
+> نام ایمیج همیشه با حروف کوچک است، چون Docker تگ با حرف بزرگ را نمی‌پذیرد.
+
+---
+
+## 🌐 استقرار و دموی آنلاین
+
+| مقصد | چه چیزی | چطور |
+| --- | --- | --- |
+| **GitHub Pages** | دموی استاتیک گزارش | workflow `pages.yml` |
+| **GHCR** | ایمیج Docker اپلیکیشن | workflow `ci.yml` |
+| **سرور خودتان** | اپلیکیشن زنده با آپلود فایل | `docker compose up` |
+
+**چرا اپلیکیشن روی Pages اجرا نمی‌شود؟** Pages فقط فایل استاتیک سرو می‌کند (HTML/CSS/JS) و هیچ فرایند پایتونی اجرا نمی‌کند. این پروژه یک سرور FastAPI است که فایل اکسل را در سمت سرور پردازش می‌کند، پس روی Pages قابل میزبانی نیست.
+
+راه‌حل: workflow `pages.yml` موتور را روی یک فایل نمونهٔ ۱۸۰ روزه اجرا می‌کند و خروجی واقعی (KPIها، نمودار SVG، جدول موجودیت‌ها، رتبه‌بندی مدل‌ها) را به یک صفحهٔ HTML استاتیک تبدیل و منتشر می‌کند. اعداد آن صفحه ساختگی نیستند؛ همان خروجی خط لوله‌اند که هنگام build محاسبه شده‌اند.
+
+برای فعال‌سازی یک‌باره: **Settings → Pages → Source: GitHub Actions**.
+
+ساخت محلی همان صفحه:
+
+```bash
+python scripts/build_static_demo.py --out _site
+```
 
 ---
 
