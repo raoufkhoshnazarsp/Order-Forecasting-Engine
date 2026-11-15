@@ -22,11 +22,19 @@ services:
       start_period: 20s
       retries: 3
 
-  # Static GitHub-Pages-style report served on its own port by nginx.
+  # Static GitHub-Pages-style report, served from the same image so the
+  # deployment needs no second registry pull.
   static-report:
-    image: nginx:alpine
+    image: bnpl-forecast-engine:latest
+    command:
+      - python
+      - -m
+      - http.server
+      - "8001"
+      - --directory
+      - /app/docs
     ports:
-      - "127.0.0.1:8001:80"
+      - "127.0.0.1:8001:8001"
     volumes:
-      - ./docs:/usr/share/nginx/html:ro
+      - ./docs:/app/docs:ro
     restart: unless-stopped
