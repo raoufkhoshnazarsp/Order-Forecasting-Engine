@@ -76,12 +76,67 @@ def ets_simple(series: pd.Series, h: int, alpha: float = 0.3, beta: float = 0.1)
     return ForecastResult("ets", np.maximum(values, 0.0))
 
 
+def calendar_profile(
+    series: pd.Series, h: int, lookback: int = 56, seasonality: int = 7
+) -> ForecastResult:
+    """Weekday-profile model driven by the Persian calendar dimension.
+
+    The level comes from the last ``seasonality`` days; the shape comes from
+    each Persian weekday's average ratio over the last ``lookback`` days. The
+    weekday of every target date is read from the ``dim_date`` table, so the
+    Iranian weekend (Friday) and Persian month boundaries are honoured without
+    any observed data for the future dates.
+    """
+    y = series.dropna().astype("float64")
+    if len(y) < seasonality * 2:
+        return ForecastResult("calendar_profile", np.full(h, float(y.iloc[-1]) if len(y) else 0.0))
+
+    recent = y.iloc[-lookback:]
+    try:
+        from src.features.persian_calendar import calendar_features
+
+        cal = calendar_features(recent.index)
+        weekdays = cal["weekday"].to_numpy()
+        future = pd.date_range(
+            start=y.index[-1] + pd.Timedelta(days=1), periods=h, freq="D"
+        )
+        future_weekdays = calendar_features(future)["weekday"].to_numpy()
+    except Exception:  # noqa: BLE001 - calendar is optional, fall back to Gregorian
+        weekdays = recent.index.day_of_week.to_numpy()
+        future = pd.date_range(
+            start=y.index[-1] + pd.Timedelta(days=1), periods=h, freq="D"
+        )
+        future_weekdays = future.day_of_week.to_numpy()
+
+    # Detrend before profiling: each day's ratio to its centred 7-day mean
+    # isolates the weekday shape from the level and the trend.
+    rolling = recent.rolling(seasonality, center=True, min_periods=seasonality // 2 + 1).mean()
+    ratio = (recent / rolling).replace([np.inf, -np.inf], np.nan).dropna()
+    if ratio.empty:
+        return ForecastResult("calendar_profile", np.full(h, float(y.iloc[-1])))
+    ratio_weekdays = pd.Series(weekdays, index=recent.index).loc[ratio.index]
+    profile = ratio.groupby(ratio_weekdays.to_numpy()).mean().to_dict()
+
+    # Level and trend are read from the deseasonalised series, so the Friday
+    # dip is not counted twice (once in the level, once in the profile).
+    recent_ratio = pd.Series(
+        [profile.get(int(w), 1.0) for w in weekdays], index=recent.index
+    )
+    deseason = (recent / recent_ratio).replace([np.inf, -np.inf], np.nan).dropna()
+    if deseason.empty:
+        return ForecastResult("calendar_profile", np.full(h, float(y.iloc[-1])))
+    level = float(deseason.iloc[-seasonality:].mean())
+    ratios = np.array([profile.get(int(w), 1.0) for w in future_weekdays], dtype="float64")
+    return ForecastResult("calendar_profile", np.maximum(level * ratios, 0.0))
+
+
 BASELINES = {
     "naive": lambda s, h: naive(s, h),
     "seasonal_naive": lambda s, h: seasonal_naive(s, h),
     "moving_average": lambda s, h: moving_average(s, h),
     "drift": lambda s, h: drift(s, h),
     "ets": lambda s, h: ets_simple(s, h),
+    "calendar_profile": lambda s, h: calendar_profile(s, h),
 }
 
 
