@@ -1,0 +1,61 @@
+# Excel input contract.
+#
+# The engine never connects to a database: every run starts from a workbook.
+# Column matching is case-insensitive and ignores spaces, underscores and
+# Persian/Arabic character variants (ي/ی, ك/ک).
+#
+# Two layouts are supported and auto-detected:
+#   raw_orders        one row per order (needs order_id + venture_id)
+#   daily_aggregated  one row per date x entity (needs entity_id + orders)
+
+layouts:
+  raw_orders:
+    required: [date, order_id, venture_id]
+    optional: [status, merchant_type, payment_method_type, vertical, category,
+               wallet_id, amount, discount_amount, voucher_discount_amount,
+               deleted_at, entity_id, entity_type]
+  daily_aggregated:
+    required: [date, entity_id, successful_orders]
+    optional: [entity_type, active_users, new_users, returning_users,
+               organic_orders, non_organic_orders, active_merchants,
+               new_merchants, campaign_spend, campaign_impressions, campaign_clicks]
+
+# Canonical field -> accepted header spellings.
+columns:
+  date: [date, order_date, registered_date, created_date, تاریخ, تاریخ سفارش, روز]
+  order_id: [order_id, id, order, شناسه سفارش, کد سفارش]
+  venture_id: [venture_id, merchant_id, venture, مرچنت, شناسه مرچنت, فروشنده]
+  wallet_id: [wallet_id, user_id, customer_id, کاربر, شناسه کاربر]
+  status: [status, order_status, وضعیت, وضعیت سفارش]
+  merchant_type: [merchant_type, channel, نوع مرچنت, کانال]
+  payment_method_type: [payment_method_type, payment_method, روش پرداخت]
+  vertical: [vertical, vertical_name, ورتیکال, دسته اصلی]
+  category: [category, دسته, گروه]
+  entity_id: [entity_id, entity, موجودیت, شناسه موجودیت]
+  entity_type: [entity_type, نوع موجودیت]
+  successful_orders: [successful_orders, orders, order_count, تعداد سفارش, سفارش موفق]
+  active_users: [active_users, users, کاربران فعال]
+  new_users: [new_users, کاربران جدید]
+  returning_users: [returning_users, کاربران بازگشتی]
+  organic_orders: [organic_orders, سفارش ارگانیک]
+  non_organic_orders: [non_organic_orders, سفارش غیرارگانیک]
+  active_merchants: [active_merchants, مرچنت فعال]
+  new_merchants: [new_merchants, مرچنت جدید]
+  campaign_spend: [campaign_spend, spend, هزینه کمپین]
+  campaign_impressions: [campaign_impressions, impressions, نمایش]
+  campaign_clicks: [campaign_clicks, clicks, کلیک]
+  amount: [amount, gross_amount, مبلغ]
+  discount_amount: [discount_amount, تخفیف]
+  voucher_discount_amount: [voucher_discount_amount, voucher, تخفیف ووچر]
+  deleted_at: [deleted_at, حذف شده]
+
+# Values treated as "successful" when a status column exists.
+successful_statuses: [SETTLE, SETTLED, SUCCESS, SUCCESSFUL, COMPLETED, تسویه, موفق]
+
+# Values treated as a Venture entity in the vertical/category columns.
+venture_markers:
+  vertical: [Snapp-Venture, VENTURE, ونچر]
+  category: [ventures, venture, ونچر]
+
+# Persian/Arabic digits and separators are normalized before parsing.
+normalize_digits: true

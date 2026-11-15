@@ -1,0 +1,267 @@
+"""Pipeline: Excel workbook in, forecast + reports out.
+
+``run_pipeline`` is the single orchestration path shared by the web UI and the
+CLI, so both always produce identical results.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from src import config
+from src.data_mart.entity_master import EntityMaster
+from src.data_mart.orders import build_daily_mart, validate_total_reconciliation
+from src.evaluation.backtest import BacktestConfig, backtest, horizon_accuracy, summarize
+from src.ingestion.excel import ExcelLoadResult, load_workbook
+from src.models.baselines import BASELINES
+from src.serving.service import RunContext, run_forecast
+
+
+class PipelineError(RuntimeError):
+    """Raised when a run cannot produce a trustworthy forecast."""
+
+
+@dataclass
+class PipelineResult:
+    run_id: str
+    source_file: str
+    date_start: date
+    date_end: date
+    horizon: int
+    model: str
+    mart_rows: int
+    entities: list[str]
+    unmapped_orders: int
+    total_last_actual: int | None
+    total_forecast: dict[int, float]
+    backtest_ranking: list[dict[str, Any]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    forecast: pd.DataFrame | None = None
+    mart: pd.DataFrame | None = None
+    sheet_reports: list[dict[str, Any]] = field(default_factory=list)
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "run_id": self.run_id,
+            "source_file": self.source_file,
+            "date_start": self.date_start.isoformat(),
+            "date_end": self.date_end.isoformat(),
+            "horizon": self.horizon,
+            "model": self.model,
+            "mart_rows": self.mart_rows,
+            "entities": self.entities,
+            "unmapped_orders": self.unmapped_orders,
+            "total_last_actual": self.total_last_actual,
+            "total_forecast": {f"D+{k}": v for k, v in sorted(self.total_forecast.items())},
+            "backtest_ranking": self.backtest_ranking,
+            "warnings": self.warnings,
+            "sheets": self.sheet_reports,
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(self.summary(), ensure_ascii=False, indent=2)
+
+
+def entity_master_for_workbook(
+    loaded: ExcelLoadResult, base: EntityMaster | None = None
+) -> EntityMaster:
+    """Build an entity master containing exactly the entities in the workbook.
+
+    Only entities that actually appear in the file are kept (plus TOTAL). Any
+    other configured vertical would otherwise receive invented zero-order rows
+    for every date, which is exactly the silent-zero behaviour the engine must
+    avoid. Ventures discovered in the file become VENTURE children of TOTAL.
+    """
+    master = base or EntityMaster.load()
+    vertical_map = {
+        str(k): str(v)
+        for k, v in (config.load_yaml("hierarchy.yaml").get("vertical_entity_map") or {}).items()
+    }
+
+    present: dict[str, str] = {}
+    for _, row in loaded.facts.iterrows():
+        entity_id = str(row["entity_id"]).strip()
+        entity_type = str(row["entity_type"]).strip().upper()
+        if not entity_id or entity_type not in {"VERTICAL", "VENTURE"}:
+            continue
+        entity_id = vertical_map.get(entity_id, entity_id)
+        present.setdefault(entity_id, entity_type)
+
+    if not present:
+        raise PipelineError("Workbook contains no entity that could be classified.")
+
+    rows = []
+    total = master.totals()[0]
+    rows.append(
+        {
+            "entity_id": total.entity_id,
+            "entity_name": total.entity_name,
+            "entity_type": "TOTAL",
+            "parent_entity_id": "",
+            "is_active": "true",
+            "valid_from": total.valid_from or "",
+            "valid_to": total.valid_to or "",
+        }
+    )
+    for entity_id, entity_type in sorted(present.items()):
+        existing = master.by_id(entity_id)
+        rows.append(
+            {
+                "entity_id": entity_id,
+                "entity_name": existing.entity_name if existing else entity_id,
+                "entity_type": entity_type,
+                "parent_entity_id": total.entity_id,
+                "is_active": "true",
+                "valid_from": (existing.valid_from or "") if existing else "",
+                "valid_to": (existing.valid_to or "") if existing else "",
+            }
+        )
+    return EntityMaster(pd.DataFrame(rows))
+
+
+def run_pipeline(
+    workbook_path: str | Path,
+    *,
+    horizon: int = 30,
+    model: str = "auto",
+    backtest_step: int = 30,
+    min_train_days: int = 60,
+    run_backtest: bool = True,
+    vertical_map: dict[str, str] | None = None,
+) -> PipelineResult:
+    """Load a workbook, build the mart, backtest, and forecast D+1..D+horizon."""
+    loaded = load_workbook(workbook_path)
+    facts = loaded.facts.copy()
+
+    if vertical_map is None:
+        vertical_map = {
+            str(k): str(v)
+            for k, v in (config.load_yaml("hierarchy.yaml").get("vertical_entity_map") or {}).items()
+        }
+    if vertical_map:
+        is_vertical = facts["entity_type"] == "VERTICAL"
+        facts.loc[is_vertical, "entity_id"] = (
+            facts.loc[is_vertical, "entity_id"].map(vertical_map).fillna(
+                facts.loc[is_vertical, "entity_id"]
+            )
+        )
+
+    start = min(facts["date"])
+    end = max(facts["date"]) + pd.Timedelta(days=1)
+    if isinstance(end, pd.Timestamp):
+        end = end.date()
+
+    master = entity_master_for_workbook(loaded)
+    unmapped = facts[facts["entity_type"] == "UNMAPPED"]
+    leaves = facts[facts["entity_type"].isin(["VERTICAL", "VENTURE"])]
+    if leaves.empty:
+        raise PipelineError(
+            "No classified orders found. Add a 'vertical' column (or entity_id) "
+            "to the workbook so orders can be assigned to an entity."
+        )
+
+    observed = set(pd.to_datetime(facts["date"]).dt.date.unique())
+    snapshot_id = f"xlsx_{datetime.now():%Y%m%d_%H%M%S}"
+    mart = build_daily_mart(
+        leaves,
+        master,
+        start=min(observed),
+        end=max(observed) + pd.Timedelta(days=1),
+        snapshot_id=snapshot_id,
+        observed_dates=observed,
+    )
+    validate_total_reconciliation(mart)
+
+    observed_rows = mart[
+        mart["quality_flag"].eq("OBSERVED") & mart["successful_orders"].notna()
+    ].copy()
+    observed_rows["successful_orders"] = observed_rows["successful_orders"].astype("int64")
+
+    warnings = list(loaded.warnings)
+    if not unmapped.empty:
+        warnings.append(
+            f"{int(unmapped['successful_orders'].sum())} orders could not be mapped to an "
+            "entity and are excluded from the total."
+        )
+
+    ranking: list[dict[str, Any]] = []
+    selected = model
+    if run_backtest:
+        try:
+            bt = backtest(
+                observed_rows,
+                BASELINES,
+                BacktestConfig(horizon=min(horizon, 30), step=backtest_step,
+                               min_train_days=min_train_days),
+            )
+        except Exception as exc:  # noqa: BLE001 - backtest is advisory, never blocks
+            bt = pd.DataFrame()
+            warnings.append(f"Backtest skipped: {exc}")
+        if not bt.empty:
+            scorecard = summarize(bt)
+            overall = (
+                scorecard.groupby("model_name")[["wape", "bias"]]
+                .mean()
+                .sort_values("wape")
+            )
+            ranking = [
+                {"model": name, "wape": float(row["wape"]), "bias": float(row["bias"])}
+                for name, row in overall.iterrows()
+                if pd.notna(row["wape"])
+            ]
+            if model == "auto" and ranking:
+                selected = ranking[0]["model"]
+    if selected == "auto":
+        selected = "seasonal_naive"
+        warnings.append(
+            "Not enough history for a model comparison; seasonal naive was used."
+        )
+    if selected not in BASELINES:
+        raise PipelineError(f"Unknown model: {selected}")
+
+    context = RunContext(
+        forecast_run_id=f"run_{max(observed):%Y%m%d}_{datetime.now():%H%M%S}",
+        forecast_origin=max(observed),
+        model_name=selected,
+        model_version=f"baseline_{selected}_v1",
+        feature_version="features_v1",
+        data_snapshot_id=snapshot_id,
+    )
+    forecast = run_forecast(
+        observed_rows, master, {selected: BASELINES[selected]},
+        context=context, horizon=horizon,
+    )
+
+    total_rows = forecast[forecast["entity_id"] == master.total_id()].set_index("horizon")
+    total_forecast = {
+        int(h): float(total_rows.loc[h, "reconciled_yhat"]) for h in total_rows.index
+    }
+    last_total = observed_rows[
+        (observed_rows["entity_id"] == master.total_id())
+    ]["successful_orders"]
+    last_total_value = int(last_total.iloc[-1]) if not last_total.empty else None
+
+    return PipelineResult(
+        run_id=context.forecast_run_id,
+        source_file=loaded.source_file,
+        date_start=min(observed),
+        date_end=max(observed),
+        horizon=horizon,
+        model=selected,
+        mart_rows=len(mart),
+        entities=sorted(observed_rows["entity_id"].unique().tolist()),
+        unmapped_orders=int(unmapped["successful_orders"].sum()) if not unmapped.empty else 0,
+        total_last_actual=last_total_value,
+        total_forecast=total_forecast,
+        backtest_ranking=ranking,
+        warnings=warnings,
+        forecast=forecast,
+        mart=mart,
+        sheet_reports=[r.as_dict() for r in loaded.reports],
+    )
