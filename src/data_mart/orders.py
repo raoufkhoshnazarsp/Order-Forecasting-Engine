@@ -20,6 +20,7 @@ FACT_COLUMNS = [
     "entity_id",
     "entity_type",
     "successful_orders",
+    "gmv",
     "active_users",
     "new_users",
     "returning_users",
@@ -34,7 +35,7 @@ FACT_COLUMNS = [
     "extraction_timestamp",
 ]
 
-ORDER_METRICS = ("successful_orders", "active_users", "new_users", "returning_users",
+ORDER_METRICS = ("successful_orders", "gmv", "active_users", "new_users", "returning_users",
                  "organic_orders", "non_organic_orders", "active_merchants", "new_merchants")
 
 

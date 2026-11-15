@@ -184,6 +184,10 @@ def _classify_entity(row: pd.Series, excel_config: dict[str, Any]) -> tuple[str,
     if vertical in venture_verticals or category in venture_categories:
         venture_id = row.get("venture_id")
         if pd.isna(venture_id):
+            # A venture bucket without a per-merchant id (the commercial
+            # data-model export) is one venture entity named after its vertical.
+            if vertical:
+                return "VENTURE", str(row.get("vertical")).strip()
             return "UNMAPPED", ""
         return "VENTURE", str(venture_id).strip().lstrip("0") or "0"
 
@@ -273,6 +277,48 @@ def _aggregated_to_facts(
     return work[["date", "entity_type", "entity_id", "successful_orders"]]
 
 
+def _daily_metrics_to_facts(
+    frame: pd.DataFrame, mapped: dict[str, str], excel_config: dict[str, Any],
+    report: SheetReport,
+) -> pd.DataFrame:
+    """Commercial data-model export: date x vertical x category x payment method.
+
+    Rows are aggregated to the leaf grain (date x entity). GMV is summed
+    alongside orders so AOV can be derived later; it is never averaged.
+    """
+    work = pd.DataFrame({canonical: frame[header] for canonical, header in mapped.items()})
+    work["date"] = parse_dates(work["date"])
+    work["successful_orders"] = _numeric(work["successful_orders"])
+    work["gmv"] = _numeric(work["gmv"])
+
+    before = len(work)
+    work = work[work["date"].notna() & work["successful_orders"].notna()]
+    if len(work) < before:
+        report.warnings.append(f"{before - len(work)} rows dropped: invalid date or order count")
+
+    if (work["successful_orders"] < 0).any() or (work["gmv"] < 0).any():
+        raise ExcelInputError("Workbook contains negative order counts or GMV")
+
+    classified = work.apply(lambda r: _classify_entity(r, excel_config), axis=1)
+    work["entity_type"] = [c[0] for c in classified]
+    work["entity_id"] = [c[1] for c in classified]
+
+    unmapped = work["entity_type"] == "UNMAPPED"
+    if unmapped.any():
+        report.warnings.append(
+            f"{int(work.loc[unmapped, 'successful_orders'].sum())} orders have no vertical "
+            "and are reported as UNMAPPED"
+        )
+
+    grouped = (
+        work.groupby(["date", "entity_type", "entity_id"], as_index=False)
+        .agg(successful_orders=("successful_orders", "sum"), gmv=("gmv", "sum"))
+    )
+    grouped["successful_orders"] = grouped["successful_orders"].round().astype("int64")
+    report.rows_used = int(grouped["successful_orders"].sum())
+    return grouped
+
+
 def load_workbook(path: str | Path) -> ExcelLoadResult:
     """Read every sheet, auto-detect layout, and return normalized leaf facts."""
     path = Path(path)
@@ -319,6 +365,8 @@ def load_workbook(path: str | Path) -> ExcelLoadResult:
 
         if layout == "raw_orders":
             facts = _raw_orders_to_facts(raw, mapped, excel_config, report)
+        elif layout == "daily_metrics":
+            facts = _daily_metrics_to_facts(raw, mapped, excel_config, report)
         else:
             facts = _aggregated_to_facts(raw, mapped, report)
         frames.append(facts)
@@ -331,9 +379,12 @@ def load_workbook(path: str | Path) -> ExcelLoadResult:
         raise ExcelInputError(f"No usable sheet found in {path.name}. {detail}")
 
     facts = pd.concat(frames, ignore_index=True)
+    aggregations: dict[str, str] = {"successful_orders": "sum"}
+    if "gmv" in facts.columns:
+        aggregations["gmv"] = "sum"
     facts = (
-        facts.groupby(["date", "entity_type", "entity_id"], as_index=False)["successful_orders"]
-        .sum()
+        facts.groupby(["date", "entity_type", "entity_id"], as_index=False)
+        .agg(aggregations)
         .sort_values(["date", "entity_type", "entity_id"])
         .reset_index(drop=True)
     )

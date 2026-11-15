@@ -4,9 +4,11 @@
 # Column matching is case-insensitive and ignores spaces, underscores and
 # Persian/Arabic character variants (ي/ی, ك/ک).
 #
-# Two layouts are supported and auto-detected:
+# Three layouts are supported and auto-detected:
 #   raw_orders        one row per order (needs order_id + venture_id)
 #   daily_aggregated  one row per date x entity (needs entity_id + orders)
+#   daily_metrics     one row per date x vertical x category x payment method,
+#                     carrying Orders and GMV (the commercial data-model export)
 
 layouts:
   raw_orders:
@@ -19,6 +21,9 @@ layouts:
     optional: [entity_type, active_users, new_users, returning_users,
                organic_orders, non_organic_orders, active_merchants,
                new_merchants, campaign_spend, campaign_impressions, campaign_clicks]
+  daily_metrics:
+    required: [date, vertical, successful_orders, gmv]
+    optional: [category, payment_method_type, active_merchants, entity_type]
 
 # Canonical field -> accepted header spellings.
 columns:
@@ -34,13 +39,8 @@ columns:
   entity_id: [entity_id, entity, موجودیت, شناسه موجودیت]
   entity_type: [entity_type, نوع موجودیت]
   successful_orders: [successful_orders, orders, order_count, تعداد سفارش, سفارش موفق]
-  active_users: [active_users, users, کاربران فعال]
-  new_users: [new_users, کاربران جدید]
-  returning_users: [returning_users, کاربران بازگشتی]
-  organic_orders: [organic_orders, سفارش ارگانیک]
-  non_organic_orders: [non_organic_orders, سفارش غیرارگانیک]
-  active_merchants: [active_merchants, مرچنت فعال]
-  new_merchants: [new_merchants, مرچنت جدید]
+  gmv: [gmv, gross_merchandise_value, total_amount, sales, فروش, مبلغ کل, گردش]
+  active_merchants: [active_merchants, active merchants, مرچنت فعال]
   campaign_spend: [campaign_spend, spend, هزینه کمپین]
   campaign_impressions: [campaign_impressions, impressions, نمایش]
   campaign_clicks: [campaign_clicks, clicks, کلیک]
