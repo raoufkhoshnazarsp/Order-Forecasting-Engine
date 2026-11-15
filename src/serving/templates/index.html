@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>استودیو پیش‌بینی سفارش | BNPL</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">پرش به محتوای اصلی</a>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <h1>استودیو پیش‌بینی سفارش</h1>
+        <p class="brand-sub">موتور پیش‌بینی روزانهٔ سفارش‌های موفق BNPL</p>
+      </div>
+    </div>
+    <nav class="topnav" aria-label="ناوبری اصلی">
+      <a href="#upload">بارگذاری داده</a>
+      <a href="#results">نتیجه</a>
+      <a href="#quality">کیفیت داده</a>
+      <a href="/api/docs" target="_blank" rel="noopener">API</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <h2>از فایل اکسل تا پیش‌بینی ۳۰ روز آینده</h2>
+      <p>
+        فایل سفارش‌ها را بارگذاری کنید؛ داده اعتبارسنجی می‌شود، داده‌های گم‌شده از صفر واقعی
+        جدا می‌شوند و پیش‌بینی روزانهٔ کل کسب‌وکار با بازهٔ اطمینان تولید می‌شود.
+      </p>
+    </section>
+
+    <section id="upload" class="card">
+      <div class="card-head">
+        <h3>۱. داده ورودی</h3>
+        <div class="head-actions">
+          <a class="btn btn-ghost btn-sm" href="/api/template">دانلود قالب اکسل</a>
+          <a class="btn btn-ghost btn-sm" href="/api/sample">دانلود دادهٔ نمونه</a>
+        </div>
+      </div>
+
+      <form id="forecast-form" class="upload-form" novalidate>
+        <div class="dropzone" id="dropzone" tabindex="0" role="button"
+             aria-label="انتخاب یا رهاکردن فایل اکسل">
+          <input type="file" id="file" name="file" accept=".xlsx,.xlsm,.xls" hidden />
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="dropzone-icon">
+            <path d="M12 16V4m0 0L7 9m5-5 5 5" fill="none" stroke="currentColor"
+                  stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" fill="none"
+                  stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          <p class="dropzone-title">فایل اکسل را اینجا رها کنید یا کلیک کنید</p>
+          <p class="dropzone-hint">xlsx / xlsm / xls — حداکثر ۲۵ مگابایت</p>
+          <p class="dropzone-file" id="file-name" hidden></p>
+        </div>
+
+        <div class="controls">
+          <label class="field">
+            <span>افق پیش‌بینی</span>
+            <select id="horizon" name="horizon">
+              <option value="7">۷ روز</option>
+              <option value="14">۱۴ روز</option>
+              <option value="30" selected>۳۰ روز</option>
+              <option value="60">۶۰ روز</option>
+              <option value="90">۹۰ روز</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>مدل</span>
+            <select id="model" name="model">
+              <option value="auto" selected>خودکار (بر اساس بک‌تست)</option>
+              <option value="seasonal_naive">فصلی ساده</option>
+              <option value="naive">ساده</option>
+              <option value="moving_average">میانگین متحرک</option>
+              <option value="ets">ETS</option>
+              <option value="drift">روند خطی</option>
+            </select>
+          </label>
+          <button type="submit" class="btn btn-primary" id="submit-btn">
+            اجرای پیش‌بینی
+          </button>
+        </div>
+      </form>
+
+      <p class="alert alert-error" id="error-box" hidden role="alert"></p>
+      <div class="progress" id="progress" hidden aria-live="polite">
+        <div class="spinner" aria-hidden="true"></div>
+        <span>در حال پردازش فایل و اجرای بک‌تست…</span>
+      </div>
+    </section>
+
+    <section id="results" hidden>
+      <div class="kpi-grid" id="kpis"></div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>مسیر پیش‌بینی کل کسب‌وکار</h3>
+          <span class="badge" id="chart-badge"></span>
+        </div>
+        <div class="chart-wrap">
+          <svg id="chart" viewBox="0 0 800 300" role="img"
+               aria-label="نمودار سفارش واقعی و پیش‌بینی‌شده"></svg>
+          <div class="legend">
+            <span><i class="dot dot-actual"></i>واقعی</span>
+            <span><i class="dot dot-forecast"></i>پیش‌بینی</span>
+            <span><i class="dot dot-band"></i>بازهٔ ۹۰٪</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>پیش‌بینی به تفکیک موجودیت</h3>
+          <span class="muted">مقادیر گردشده و سازگار با جمع کل</span>
+        </div>
+        <div class="table-wrap">
+          <table class="table" id="entity-table">
+            <thead>
+              <tr>
+                <th scope="col">موجودیت</th>
+                <th scope="col">نوع</th>
+                <th scope="col">D+1</th>
+                <th scope="col">D+7</th>
+                <th scope="col">روز آخر</th>
+                <th scope="col">جمع دوره</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" id="quality">
+        <div class="card-head"><h3>کیفیت داده و مدل</h3></div>
+        <div class="split">
+          <div>
+            <h4>رتبه‌بندی مدل‌ها (میانگین بک‌تست)</h4>
+            <div class="table-wrap">
+              <table class="table table-compact" id="model-table">
+                <thead><tr><th scope="col">مدل</th><th scope="col">WAPE</th><th scope="col">Bias</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <h4>هشدارها</h4>
+            <ul class="warning-list" id="warnings"></ul>
+            <h4>برگه‌های خوانده‌شده</h4>
+            <ul class="sheet-list" id="sheets"></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>پردازش کاملاً محلی روی فایل اکسل — بدون اتصال به دیتابیس</span>
+    <span>© {{year}} BNPL Forecasting Engine</span>
+  </footer>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
