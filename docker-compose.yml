@@ -3,10 +3,30 @@ services:
     build: .
     image: bnpl-forecast-engine:latest
     ports:
-      - "8000:8000"
+      # Only the loopback interface: nginx fronts this, the port is not public.
+      - "127.0.0.1:8000:8000"
     environment:
       TZ: Asia/Tehran
     volumes:
       - ./artifacts:/app/artifacts
       - ./reports:/app/reports
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=3)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  # Static GitHub-Pages-style report served on its own port by nginx.
+  static-report:
+    image: nginx:alpine
+    ports:
+      - "127.0.0.1:8001:80"
+    volumes:
+      - ./docs:/usr/share/nginx/html:ro
     restart: unless-stopped
