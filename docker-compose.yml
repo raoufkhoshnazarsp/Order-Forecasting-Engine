@@ -1,0 +1,12 @@
+services:
+  forecast-studio:
+    build: .
+    image: bnpl-forecast-engine:latest
+    ports:
+      - "8000:8000"
+    environment:
+      TZ: Asia/Tehran
+    volumes:
+      - ./artifacts:/app/artifacts
+      - ./reports:/app/reports
+    restart: unless-stopped
