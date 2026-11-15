@@ -223,6 +223,43 @@ main {
 .field select:focus-visible { outline: 2px solid var(--green); border-color: var(--green); }
 .controls .btn-primary { margin-inline-start: auto; padding-inline: 1.7rem; }
 
+/* ---------- quality gate ---------- */
+.quality {
+  margin-top: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.quality-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--sp-3); margin-bottom: var(--sp-2);
+}
+.quality-head h4 { margin: 0; }
+.check-list { list-style: none; margin: var(--sp-3) 0 0; padding: 0; display: grid; gap: var(--sp-2); }
+.check {
+  display: grid; gap: .1rem;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  border-inline-start: 3px solid var(--border-strong);
+  background: var(--surface-2);
+}
+.check-title { font-size: .84rem; font-weight: 700; }
+.check-detail { font-size: .78rem; color: var(--text-muted); }
+.check-pass { border-inline-start-color: var(--green); }
+.check-pass .check-title { color: var(--green); }
+.check-warn { border-inline-start-color: var(--warn); }
+.check-warn .check-title { color: var(--warn); }
+.check-fail { border-inline-start-color: var(--danger); }
+.check-fail .check-title { color: #ff9b97; }
+.quality-actions {
+  display: flex; align-items: center; gap: var(--sp-3);
+  flex-wrap: wrap; margin-top: var(--sp-4);
+}
+.badge-pass { background: var(--green-soft); color: var(--green); border-color: rgba(76, 206, 172, .4); }
+.badge-warn { background: var(--warn-soft); color: var(--warn); border-color: rgba(226, 176, 74, .4); }
+.badge-fail { background: var(--danger-soft); color: #ff9b97; border-color: rgba(219, 79, 74, .45); }
+
 /* ---------- alerts / progress ---------- */
 .alert { margin-top: 1rem; padding: .75rem 1rem; border-radius: var(--radius-sm); font-size: .85rem; }
 .alert-error { background: var(--danger-soft); color: #ff9b97; border: 1px solid rgba(219, 79, 74, .45); }

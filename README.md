@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](#)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688?logo=fastapi&logoColor=white)](#)
-[![Tests](https://img.shields.io/badge/tests-119%20passing-2ea44f)](#-تستها)
+[![Tests](https://img.shields.io/badge/tests-139%20passing-2ea44f)](#-تستها)
 [![CI](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/ci.yml)
 [![Pages](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/pages.yml/badge.svg)](https://raoufkhoshnazarsp.github.io/Order-Forecasting-Engine/)
 [![License](https://img.shields.io/badge/license-proprietary-6b7280)](#)
@@ -153,6 +153,30 @@ python scripts/forecast_from_excel.py --template data/template.xlsx
 
 ---
 
+## 🛡 دروازهٔ کیفیت داده
+
+هیچ محاسبه‌ای بدون تأیید کیفیت داده اجرا نمی‌شود. `POST /api/quality` فایل را می‌خواند و
+۱۰ بررسی را با وضعیت `pass` / `warn` / `fail` برمی‌گرداند:
+
+| بررسی | خطا (مسدود) | هشدار |
+| --- | --- | --- |
+| ستون‌های لازم | ستون غایب | — |
+| تاریخ‌های نامعتبر | تاریخ ناخوانا | — |
+| ردیف‌های تکراری | — | کلید تاریخ×ورتیکال×دسته تکراری |
+| مقادیر منفی | سفارش یا GMV منفی | — |
+| صفرهای واقعی | — | بیش از ۱۰٪ ردیف صفر |
+| پیوستگی تاریخ | شکاف > ۷ روز | شکاف > ۲ روز |
+| روز ناقص پایانی | — | روز آخر < ۷۰٪ میانهٔ همان روز هفته |
+| پوشش ورتیکال‌ها | — | یکی از ۷ ورتیکال غایب |
+| طول تاریخچه | — | کمتر از ۱۲۰ روز |
+| سازگاری GMV و سفارش | میانهٔ AOV صفر | AOV بیش از ۲۰ برابر دور از میانه |
+
+پاسخ شامل `token` (هش SHA-256 فایل) است. `/api/forecast` و `/api/delivery` بدون همان توکن
+پاسخ **428** می‌دهند، پس تأیید یک فایل هرگز به فایل دیگر منتقل نمی‌شود. در UI دکمهٔ
+«بررسی کیفیت داده» گزارش را نشان می‌دهد و دکمهٔ «اجرای پیش‌بینی» تا تأیید کاربر غیرفعال است.
+
+---
+
 ## 📤 خروجی تحویل (`output.xlsx`)
 
 علاوه بر داشبورد، یک فایل اکسل با **قالب دقیق تحویل تجاری** تولید می‌شود: یک ردیف برای هر
@@ -272,7 +296,7 @@ data/calendar/
   dim_date.csv.gz         جدول تقویم شمسی (۱۸٬۱۸۴ روز)
 
 sql/                      قالب‌های SQL اختیاری برای آینده
-tests/                    ۱۱۹ تست
+tests/                    ۱۳۹ تست
 ```
 
 ---
@@ -387,7 +411,7 @@ TOTAL = Σ(VERTICAL) + Σ(VENTURE)
 ## ✅ تست‌ها
 
 ```bash
-python -m pytest          # ۱۱۹ تست
+python -m pytest          # ۱۳۹ تست
 python scripts/smoke_run.py   # اجرای سرتاسری روی دادهٔ مصنوعی
 ```
 
@@ -402,6 +426,9 @@ python scripts/smoke_run.py   # اجرای سرتاسری روی دادهٔ مص
 | `test_target.py` | گاردهای تعریف تارگت، امنیت SQL |
 | `test_sql_contract.py` | قرارداد قالب‌های SQL اختیاری |
 | `test_gmv_calendar.py` | ساختار `daily_metrics`، ریاضی AOV/GMV، روز ناقص، جدول تقویم |
+| `test_quality_gate.py` | دروازهٔ کیفیت داده: ۱۰ بررسی، توکن تأیید، مسدودسازی خطا |
+| `test_quality_api.py` | الزام توکن کیفیت در `/api/forecast` و `/api/delivery` |
+| `test_ui_shell.py` | پنهان‌بودن متن پردازش و مقیاس فاصله |
 | `test_delivery.py` | قالب فایل تحویل: ستون‌ها، `VERTICALS` = جمع دسته‌ها، Venture/Pay هم‌سطح، GMV = سفارش × AOV |
 
 ---

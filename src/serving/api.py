@@ -24,6 +24,7 @@ from src.serving.delivery import (
     build_delivery_frame,
     validate_delivery,
 )
+from src.serving.quality import QualityGateError, check_workbook, require_quality
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -64,12 +65,8 @@ def download_template() -> Response:
     )
 
 
-@app.post("/api/forecast")
-async def forecast(
-    file: UploadFile = File(...),
-    horizon: int = Form(30),
-    model: str = Form("auto"),
-) -> JSONResponse:
+async def _save_upload(file: UploadFile) -> Path:
+    """Validate the upload envelope and persist it for the run."""
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(status_code=400, detail="فقط فایل اکسل (.xlsx) پذیرفته می‌شود.")
@@ -79,11 +76,39 @@ async def forecast(
     if not payload:
         raise HTTPException(status_code=400, detail="فایل خالی است.")
 
-    horizon = max(1, min(int(horizon or 30), 90))
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     saved = ARTIFACTS / f"{stamp}_{Path(file.filename or 'upload.xlsx').name}"
     saved.write_bytes(payload)
+    return saved
+
+
+@app.post("/api/quality")
+async def quality(
+    file: UploadFile = File(...),
+    horizon: int = Form(30),
+) -> JSONResponse:
+    """Pre-flight gate: report every data check before anything is computed."""
+    saved = await _save_upload(file)
+    horizon = max(1, min(int(horizon or 30), 90))
+    report = check_workbook(saved, horizon=horizon)
+    return JSONResponse(report.as_dict())
+
+
+@app.post("/api/forecast")
+async def forecast(
+    file: UploadFile = File(...),
+    horizon: int = Form(30),
+    model: str = Form("auto"),
+    quality_token: str = Form(""),
+) -> JSONResponse:
+    saved = await _save_upload(file)
+    horizon = max(1, min(int(horizon or 30), 90))
+
+    try:
+        require_quality(saved, quality_token, horizon=horizon)
+    except QualityGateError as exc:
+        raise HTTPException(status_code=428, detail=str(exc)) from exc
 
     try:
         result = run_pipeline(saved, horizon=horizon, model=model)
@@ -207,26 +232,20 @@ async def delivery(
     file: UploadFile = File(...),
     horizon: int = Form(30),
     model: str = Form("auto"),
+    quality_token: str = Form(""),
 ) -> StreamingResponse:
     """Return the delivery workbook: date | level | vertical | category | order | GMV.
 
     This is the business-facing format, one row per date x vertical x category,
     covering ``horizon`` days after the last day present in the upload.
     """
-    suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in ALLOWED_SUFFIXES:
-        raise HTTPException(status_code=400, detail="فقط فایل اکسل (.xlsx) پذیرفته می‌شود.")
-    payload = await file.read()
-    if len(payload) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="حجم فایل بیش از حد مجاز است.")
-    if not payload:
-        raise HTTPException(status_code=400, detail="فایل خالی است.")
-
+    saved = await _save_upload(file)
     horizon = max(1, min(int(horizon or 30), 90))
-    ARTIFACTS.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    saved = ARTIFACTS / f"{stamp}_{Path(file.filename or 'upload.xlsx').name}"
-    saved.write_bytes(payload)
+
+    try:
+        require_quality(saved, quality_token, horizon=horizon)
+    except QualityGateError as exc:
+        raise HTTPException(status_code=428, detail=str(exc)) from exc
 
     try:
         facts = load_category_facts(saved)

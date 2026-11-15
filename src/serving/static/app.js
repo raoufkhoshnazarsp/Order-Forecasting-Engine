@@ -8,6 +8,13 @@
   const fileName = document.getElementById("file-name");
   const submitBtn = document.getElementById("submit-btn");
   const deliveryBtn = document.getElementById("delivery-btn");
+  const checkBtn = document.getElementById("check-btn");
+  const approveBtn = document.getElementById("approve-btn");
+  const gate = document.getElementById("quality-gate");
+  const gateStatus = document.getElementById("quality-status");
+  const gateSummary = document.getElementById("quality-summary");
+  const gateChecks = document.getElementById("quality-checks");
+  const gateHint = document.getElementById("quality-hint");
   const errorBox = document.getElementById("error-box");
   const progress = document.getElementById("progress");
   const progressText = progress.querySelector("span");
@@ -17,6 +24,8 @@
   const fa1 = new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 1 });
 
   let lastChart = null;
+  let qualityToken = null;
+  let qualityFileKey = null;
   let currentMetric = "orders";
 
   function formatNumber(value) {
@@ -34,9 +43,106 @@
     if (progressText) {
       progressText.textContent = message || "در حال پردازش فایل و اجرای بک‌تست…";
     }
-    submitBtn.disabled = on;
-    deliveryBtn.disabled = on;
+    checkBtn.disabled = on;
+    deliveryBtn.disabled = on || !qualityToken;
+    submitBtn.disabled = on || !qualityToken;
   }
+
+  function resetGate() {
+    qualityToken = null;
+    qualityFileKey = null;
+    gate.hidden = true;
+    gateChecks.innerHTML = "";
+    approveBtn.hidden = true;
+    gateHint.textContent = "";
+    submitBtn.disabled = true;
+    deliveryBtn.disabled = true;
+  }
+
+  const STATUS_LABEL = { pass: "سالم", warn: "هشدار", fail: "خطا" };
+
+  function renderGate(report) {
+    gate.hidden = false;
+    gate.dataset.token = report.token || "";
+    gateStatus.textContent = STATUS_LABEL[report.status] || report.status;
+    gateStatus.className = "badge badge-" + report.status;
+    const counts = report.counts || {};
+    gateSummary.textContent =
+      `${report.days} روز داده · ${counts.pass || 0} بررسی سالم · ` +
+      `${counts.warn || 0} هشدار · ${counts.fail || 0} خطا`;
+
+    gateChecks.innerHTML = "";
+    (report.checks || []).forEach((check) => {
+      const li = document.createElement("li");
+      li.className = "check check-" + check.status;
+      const title = document.createElement("span");
+      title.className = "check-title";
+      title.textContent = check.title;
+      const detail = document.createElement("span");
+      detail.className = "check-detail";
+      detail.textContent = check.detail;
+      li.append(title, detail);
+      gateChecks.appendChild(li);
+    });
+
+    if (report.blocked) {
+      approveBtn.hidden = true;
+      gateHint.textContent = "تا رفع خطاها امکان محاسبه وجود ندارد.";
+      qualityToken = null;
+    } else {
+      approveBtn.hidden = false;
+      gateHint.textContent = "پس از بررسی، تأیید کنید تا محاسبه اجرا شود.";
+      qualityToken = null;
+    }
+    submitBtn.disabled = true;
+    deliveryBtn.disabled = true;
+  }
+
+  async function runQualityCheck() {
+    clearError();
+    const file = fileInput.files[0];
+    if (!file) {
+      showError("ابتدا فایل اکسل را انتخاب کنید.");
+      return;
+    }
+    const body = new FormData();
+    body.append("file", file);
+    body.append("horizon", document.getElementById("horizon").value);
+
+    setBusy(true, "در حال بررسی کیفیت داده…");
+    try {
+      const response = await fetch("/api/quality", { method: "POST", body });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.detail || "بررسی کیفیت داده ناموفق بود.");
+      }
+      qualityFileKey = file.name + ":" + file.size + ":" + file.lastModified;
+      renderGate(payload);
+      gate.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } catch (error) {
+      resetGate();
+      showError(error.message || "خطای نامشخص در بررسی کیفیت داده.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  checkBtn.addEventListener("click", runQualityCheck);
+
+  approveBtn.addEventListener("click", () => {
+    const file = fileInput.files[0];
+    const key = file ? file.name + ":" + file.size + ":" + file.lastModified : null;
+    if (!key || key !== qualityFileKey) {
+      resetGate();
+      showError("فایل تغییر کرده است؛ کیفیت داده را دوباره بررسی کنید.");
+      return;
+    }
+    qualityToken = gate.dataset.token || null;
+    approveBtn.hidden = true;
+    gateHint.textContent = "کیفیت داده تأیید شد؛ اکنون می‌توانید پیش‌بینی را اجرا کنید.";
+    submitBtn.disabled = false;
+    deliveryBtn.disabled = false;
+  });
 
   function clearError() {
     errorBox.hidden = true;
@@ -53,6 +159,7 @@
     clearError();
     fileName.textContent = file.name;
     fileName.hidden = false;
+    resetGate();
   }
 
   dropzone.addEventListener("click", () => fileInput.click());
@@ -96,6 +203,7 @@
     body.append("file", file);
     body.append("horizon", document.getElementById("horizon").value);
     body.append("model", document.getElementById("model").value);
+    body.append("quality_token", qualityToken || "");
 
     setBusy(true, "در حال ساخت فایل تحویل…");
     try {
@@ -133,6 +241,7 @@
     body.append("file", file);
     body.append("horizon", document.getElementById("horizon").value);
     body.append("model", document.getElementById("model").value);
+    body.append("quality_token", qualityToken || "");
 
     setBusy(true, "در حال خواندن فایل، اعتبارسنجی داده و اجرای بک‌تست…");
     results.hidden = true;

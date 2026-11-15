@@ -120,7 +120,11 @@
                 <option value="calendar_profile">پروفایل تقویم شمسی</option>
               </select>
             </label>
-            <button type="submit" class="btn btn-primary" id="submit-btn">
+            <button type="button" class="btn btn-primary" id="check-btn">
+              بررسی کیفیت داده
+            </button>
+            <button type="submit" class="btn btn-accent" id="submit-btn" disabled
+                    title="ابتدا کیفیت داده را بررسی و تأیید کنید">
               اجرای پیش‌بینی
             </button>
             <button type="button" class="btn btn-accent" id="delivery-btn"
@@ -129,6 +133,21 @@
             </button>
           </div>
         </form>
+
+        <section class="quality" id="quality-gate" hidden aria-live="polite">
+          <div class="quality-head">
+            <h4>گزارش کیفیت داده</h4>
+            <span class="badge" id="quality-status"></span>
+          </div>
+          <p class="muted" id="quality-summary"></p>
+          <ul class="check-list" id="quality-checks"></ul>
+          <div class="quality-actions">
+            <button type="button" class="btn btn-primary btn-sm" id="approve-btn" hidden>
+              تأیید کیفیت و ادامه
+            </button>
+            <span class="muted" id="quality-hint"></span>
+          </div>
+        </section>
 
         <p class="alert alert-error" id="error-box" hidden role="alert"></p>
         <div class="progress" id="progress" hidden aria-live="polite">

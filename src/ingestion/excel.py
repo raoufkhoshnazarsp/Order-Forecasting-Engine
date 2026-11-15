@@ -391,12 +391,18 @@ def load_workbook(path: str | Path) -> ExcelLoadResult:
     return ExcelLoadResult(facts=facts, reports=reports, source_file=path.name)
 
 
-def load_category_facts(path: str | Path) -> pd.DataFrame:
+def load_category_facts(
+    path: str | Path, *, with_diagnostics: bool = False
+) -> pd.DataFrame | tuple[pd.DataFrame, dict[str, int]]:
     """Load the commercial export at its native grain: date x vertical x category.
 
     The engine's internal contract aggregates to date x entity, but the
     delivery workbook is category-level, so the category must survive
     ingestion. Rows are summed across payment methods only.
+
+    With ``with_diagnostics`` the raw row count and the number of duplicate
+    keys collapsed by that aggregation are returned alongside the frame, so
+    the quality gate can report them instead of silently losing the signal.
     """
     path = Path(path)
     if not path.exists():
@@ -434,13 +440,21 @@ def load_category_facts(path: str | Path) -> pd.DataFrame:
     facts = facts[facts["date"].notna() & facts["orders"].notna()].copy()
     if facts.empty:
         raise ExcelInputError("No usable rows in the workbook")
+    facts["date"] = pd.to_datetime(facts["date"])
 
+    keys = ["date", "vertical", "category"]
+    diagnostics = {
+        "rows_read": int(len(facts)),
+        "duplicate_rows": int(facts.duplicated(subset=keys, keep=False).sum()),
+    }
     grouped = (
-        facts.groupby(["date", "vertical", "category"], as_index=False)
+        facts.groupby(keys, as_index=False)
         .agg(orders=("orders", "sum"), gmv=("gmv", "sum"))
-        .sort_values(["date", "vertical", "category"])
+        .sort_values(keys)
         .reset_index(drop=True)
     )
+    if with_diagnostics:
+        return grouped, diagnostics
     return grouped
 
 
