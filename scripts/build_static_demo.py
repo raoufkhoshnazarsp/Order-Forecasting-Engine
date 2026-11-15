@@ -108,11 +108,11 @@ def svg_chart(history: list[float], forecast: list[float], lower: list[float],
         yy = y(value)
         parts.append(
             f'<line x1="{pad["left"]}" x2="{W - pad["right"]}" y1="{yy:.1f}" y2="{yy:.1f}" '
-            'stroke="#eef1f6" stroke-width="1"/>'
+            'stroke="#2c3a54" stroke-width="1"/>'
         )
         parts.append(
             f'<text x="{pad["left"] - 10}" y="{yy + 4:.1f}" text-anchor="end" '
-            f'font-size="11" fill="#8a93a6">{fa_number(value)}</text>'
+            f'font-size="11" fill="#8b9cb3">{fa_number(value)}</text>'
         )
 
     split = len(history) - 1
@@ -120,27 +120,27 @@ def svg_chart(history: list[float], forecast: list[float], lower: list[float],
     lower_pts = "L".join(
         f"{x(split + i):.1f},{y(v):.1f}" for i, v in reversed(list(enumerate(lower)))
     )
-    parts.append(f'<path d="M{upper_pts}L{lower_pts}Z" fill="#cfdcf7" opacity="0.55"/>')
+    parts.append(f'<path d="M{upper_pts}L{lower_pts}Z" fill="#6870fa" opacity="0.55"/>')
 
     hist_path = "L".join(f"{x(i):.1f},{y(v):.1f}" for i, v in enumerate(history))
     parts.append(
-        f'<path d="M{hist_path}" fill="none" stroke="#55617a" stroke-width="2" '
+        f'<path d="M{hist_path}" fill="none" stroke="#9aa8bd" stroke-width="2" '
         'stroke-linejoin="round" stroke-linecap="round"/>'
     )
     fc_path = "L".join(f"{x(split + i):.1f},{y(v):.1f}" for i, v in enumerate(forecast))
     parts.append(
-        f'<path d="M{fc_path}" fill="none" stroke="#1c5fd4" stroke-width="2.2" '
+        f'<path d="M{fc_path}" fill="none" stroke="#4cceac" stroke-width="2.2" '
         'stroke-dasharray="5 4" stroke-linejoin="round"/>'
     )
     parts.append(
         f'<line x1="{x(split):.1f}" x2="{x(split):.1f}" y1="{pad["top"]}" '
-        f'y2="{pad["top"] + inner_h}" stroke="#cfd5e1" stroke-dasharray="3 3"/>'
+        f'y2="{pad["top"] + inner_h}" stroke="#3a4a67" stroke-dasharray="3 3"/>'
     )
 
     for index, text in ((0, labels[0]), (split, "امروز"), (total - 1, labels[-1])):
         parts.append(
             f'<text x="{x(index):.1f}" y="{H - 10}" text-anchor="middle" '
-            f'font-size="11" fill="#8a93a6">{html.escape(text)}</text>'
+            f'font-size="11" fill="#8b9cb3">{html.escape(text)}</text>'
         )
 
     parts.append("</svg>")
@@ -256,19 +256,30 @@ def render(result, out_dir: Path) -> Path:
 </head>
 <body>
 <a class="skip-link" href="#main">پرش به محتوای اصلی</a>
-<header class="topbar">
+<aside class="sidebar">
   <div class="brand">
     <span class="brand-mark" aria-hidden="true"></span>
     <div>
-      <h1>استودیو پیش‌بینی سفارش</h1>
-      <p class="brand-sub">موتور پیش‌بینی روزانهٔ سفارش، AOV و GMV</p>
+      <div class="brand-name">Forecast Studio</div>
+      <div class="brand-sub">موتور پیش‌بینی روزانهٔ سفارش BNPL</div>
     </div>
   </div>
-  <nav class="topnav" aria-label="ناوبری اصلی">
-    <a href="#results">نتیجه</a>
-    <a href="#quality">کیفیت داده</a>
-    <a href="https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine">مخزن</a>
+  <nav class="side-nav" aria-label="ناوبری اصلی">
+    <p class="side-nav-title">داشبورد</p>
+    <a href="#results">نتیجهٔ پیش‌بینی</a>
+    <a href="#quality">کیفیت داده و مدل</a>
+    <a href="https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine">مخزن پروژه</a>
   </nav>
+  <div class="side-foot">دموی استاتیک<br />خروجی واقعی موتور</div>
+</aside>
+
+<div class="shell">
+<header class="topbar">
+  <div>
+    <h2>استودیو پیش‌بینی سفارش</h2>
+    <p class="sub">از فایل اکسل تا پیش‌بینی ۳۰ روز آیندهٔ سفارش، AOV و GMV</p>
+  </div>
+  <span class="pill">دموی استاتیک</span>
 </header>
 
 <main id="main">
@@ -348,6 +359,7 @@ def render(result, out_dir: Path) -> Path:
   <span>دموی استاتیک — خروجی واقعی موتور، محاسبه‌شده هنگام ساخت صفحه</span>
   <span>BNPL Forecasting Engine</span>
 </footer>
+</div>
 </body>
 </html>
 """

@@ -11,13 +11,19 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from src import config
-from src.ingestion.excel import ExcelInputError, template_bytes
+from src.ingestion.excel import ExcelInputError, load_category_facts, template_bytes
 from src.pipeline import PipelineError, run_pipeline
+from src.serving.delivery import (
+    DeliveryError,
+    build_delivery_frame,
+    validate_delivery,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -194,6 +200,72 @@ def _round(value):
 
 def pd_date(value) -> str:
     return str(value)
+
+
+@app.post("/api/delivery")
+async def delivery(
+    file: UploadFile = File(...),
+    horizon: int = Form(30),
+    model: str = Form("auto"),
+) -> StreamingResponse:
+    """Return the delivery workbook: date | level | vertical | category | order | GMV.
+
+    This is the business-facing format, one row per date x vertical x category,
+    covering ``horizon`` days after the last day present in the upload.
+    """
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in ALLOWED_SUFFIXES:
+        raise HTTPException(status_code=400, detail="فقط فایل اکسل (.xlsx) پذیرفته می‌شود.")
+    payload = await file.read()
+    if len(payload) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="حجم فایل بیش از حد مجاز است.")
+    if not payload:
+        raise HTTPException(status_code=400, detail="فایل خالی است.")
+
+    horizon = max(1, min(int(horizon or 30), 90))
+    ARTIFACTS.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    saved = ARTIFACTS / f"{stamp}_{Path(file.filename or 'upload.xlsx').name}"
+    saved.write_bytes(payload)
+
+    try:
+        facts = load_category_facts(saved)
+        result = build_delivery_frame(
+            facts, origin=max(facts["date"]), horizon=horizon, model=model
+        )
+        validate_delivery(result.frame)
+    except ExcelInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except DeliveryError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500, detail=f"ساخت فایل خروجی با خطا مواجه شد: {exc}"
+        ) from exc
+
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        out = result.frame.copy()
+        out["date"] = pd.to_datetime(out["date"])
+        out.to_excel(writer, sheet_name="Sheet1", index=False)
+        sheet = writer.sheets["Sheet1"]
+        for cell in sheet["A"][1:]:
+            cell.number_format = "yyyy-mm-dd"
+        for column, width in zip("ABCDEF", (12, 10, 16, 30, 16, 20)):
+            sheet.column_dimensions[column].width = width
+    buffer.seek(0)
+
+    filename = f"forecast-{horizon}d-{result.origin.isoformat()}.xlsx"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "X-Forecast-Model": result.model,
+        "X-Forecast-Rows": str(len(result.frame)),
+    }
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
 
 
 @app.get("/api/sample")

@@ -13,3 +13,6 @@ notebooks/.ipynb_checkpoints/
 
 # Uploaded business data is never committed.
 uploads/
+
+# Generated output is derived from business data; it is delivered, not versioned.
+outputs/

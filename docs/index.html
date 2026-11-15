@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>استودیو پیش‌بینی سفارش | دموی استاتیک</title>
+<link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+<a class="skip-link" href="#main">پرش به محتوای اصلی</a>
+<aside class="sidebar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <div>
+      <div class="brand-name">Forecast Studio</div>
+      <div class="brand-sub">موتور پیش‌بینی روزانهٔ سفارش BNPL</div>
+    </div>
+  </div>
+  <nav class="side-nav" aria-label="ناوبری اصلی">
+    <p class="side-nav-title">داشبورد</p>
+    <a href="#results">نتیجهٔ پیش‌بینی</a>
+    <a href="#quality">کیفیت داده و مدل</a>
+    <a href="https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine">مخزن پروژه</a>
+  </nav>
+  <div class="side-foot">دموی استاتیک<br />خروجی واقعی موتور</div>
+</aside>
+
+<div class="shell">
+<header class="topbar">
+  <div>
+    <h2>استودیو پیش‌بینی سفارش</h2>
+    <p class="sub">از فایل اکسل تا پیش‌بینی ۳۰ روز آیندهٔ سفارش، AOV و GMV</p>
+  </div>
+  <span class="pill">دموی استاتیک</span>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <h2>از فایل اکسل تا پیش‌بینی ۳۰ روز آینده</h2>
+    <p>
+      این صفحه یک <strong>دموی استاتیک</strong> است: اعداد و نمودار زیر خروجی واقعی موتور
+      روی یک فایل نمونهٔ ۱۸۰ روزه‌اند که هنگام ساخت همین صفحه محاسبه شده‌اند.
+      برای اجرای زنده با فایل خودتان، اپلیکیشن را از مخزن اجرا کنید.
+    </p>
+    <p class="muted">
+      مدل انتخابی: <strong>calendar_profile</strong> ·
+      بازهٔ داده: 2026-05-19 تا 2026-11-14 ·
+      افق: ۳۰ روز
+    </p>
+  </section>
+
+  <section id="results">
+    <div class="kpi-grid"><div class="kpi "><span class="kpi-label">آخرین مقدار واقعی</span><span class="kpi-value">۱,۸۲۸</span><span class="kpi-sub">سفارش موفق در 2026-11-14</span></div><div class="kpi kpi-accent"><span class="kpi-label">پیش‌بینی فردا (D+1)</span><span class="kpi-value">۱,۷۳۷</span><span class="kpi-sub">روز اول افق</span></div><div class="kpi "><span class="kpi-label">پیش‌بینی هفته آینده (D+7)</span><span class="kpi-value">۱,۸۳۱</span><span class="kpi-sub">روز هفتم افق</span></div><div class="kpi kpi-good"><span class="kpi-label">پیش‌بینی روز ۳۰</span><span class="kpi-value">۱,۷۵۴</span><span class="kpi-sub">انتهای افق</span></div><div class="kpi kpi-accent"><span class="kpi-label">GMV فردا (D+1)</span><span class="kpi-value">۲,۶۷۸,۸۶۵,۶۳۵</span><span class="kpi-sub">سفارش × AOV</span></div><div class="kpi "><span class="kpi-label">AOV فردا (D+1)</span><span class="kpi-value">۱,۵۴۲,۲۳۷</span><span class="kpi-sub">میانگین ارزش هر سفارش</span></div></div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>مسیر پیش‌بینی کل کسب‌وکار — سفارش موفق</h3>
+        <span class="badge">بازهٔ ۹۰٪</span>
+      </div>
+      <div class="chart-wrap">
+        <svg viewBox="0 0 900 320" role="img" aria-label="نمودار پیش‌بینی"><line x1="74" x2="882" y1="286.0" y2="286.0" stroke="#2c3a54" stroke-width="1"/><text x="64" y="290.0" text-anchor="end" font-size="11" fill="#8b9cb3">۰</text><line x1="74" x2="882" y1="219.5" y2="219.5" stroke="#2c3a54" stroke-width="1"/><text x="64" y="223.5" text-anchor="end" font-size="11" fill="#8b9cb3">۱,۱۳۵</text><line x1="74" x2="882" y1="153.0" y2="153.0" stroke="#2c3a54" stroke-width="1"/><text x="64" y="157.0" text-anchor="end" font-size="11" fill="#8b9cb3">۲,۲۷۱</text><line x1="74" x2="882" y1="86.5" y2="86.5" stroke="#2c3a54" stroke-width="1"/><text x="64" y="90.5" text-anchor="end" font-size="11" fill="#8b9cb3">۳,۴۰۶</text><line x1="74" x2="882" y1="20.0" y2="20.0" stroke="#2c3a54" stroke-width="1"/><text x="64" y="24.0" text-anchor="end" font-size="11" fill="#8b9cb3">۴,۵۴۱</text><path d="M678.3,158.6L685.1,147.0L691.9,132.8L698.7,120.5L705.5,113.1L712.3,160.3L719.0,110.9L725.8,111.7L732.6,106.3L739.4,96.1L746.2,86.7L753.0,81.6L759.8,130.6L766.6,82.8L773.4,84.9L780.2,80.7L786.9,71.5L793.7,63.0L800.5,58.7L807.3,108.4L814.1,61.3L820.9,64.0L827.7,60.2L834.5,51.6L841.3,43.6L848.1,39.7L854.8,89.8L861.6,43.1L868.4,46.1L875.2,42.8L875.2,286.0L868.4,286.0L861.6,286.0L854.8,286.0L848.1,286.0L841.3,286.0L834.5,286.0L827.7,286.0L820.9,286.0L814.1,286.0L807.3,286.0L800.5,282.3L793.7,280.6L786.9,282.8L780.2,285.3L773.4,283.5L766.6,274.8L759.8,286.0L753.0,259.3L746.2,256.9L739.4,258.3L732.6,260.2L725.8,256.8L719.0,246.7L712.3,285.4L705.5,227.8L698.7,223.1L691.9,221.6L685.1,219.5L678.3,209.9Z" fill="#6870fa" opacity="0.55"/><path d="M74.0,193.4L80.8,190.5L87.6,186.6L94.4,184.4L101.2,230.2L107.9,194.2L114.7,194.8L121.5,194.8L128.3,188.2L135.1,187.3L141.9,182.7L148.7,231.1L155.5,191.6L162.3,195.2L169.1,191.4L175.8,189.6L182.6,183.4L189.4,182.7L196.2,228.9L203.0,190.6L209.8,194.4L216.6,192.6L223.4,187.9L230.2,183.6L237.0,181.4L243.7,228.7L250.5,188.1L257.3,191.2L264.1,188.6L270.9,188.2L277.7,180.3L284.5,180.5L291.3,227.0L298.1,186.5L304.9,191.9L311.6,192.2L318.4,184.2L325.2,180.6L332.0,179.9L338.8,228.4L345.6,184.9L352.4,189.3L359.2,189.2L366.0,186.2L372.8,181.0L379.5,179.3L386.3,226.2L393.1,186.1L399.9,190.1L406.7,188.0L413.5,183.4L420.3,177.5L427.1,176.1L433.9,225.2L440.7,185.7L447.4,187.4L454.2,185.4L461.0,181.6L467.8,173.1L474.6,177.3L481.4,226.5L488.2,181.4L495.0,187.7L501.8,185.9L508.6,180.2L515.3,177.8L522.1,171.0L528.9,224.9L535.7,182.3L542.5,185.0L549.3,185.7L556.1,175.9L562.9,174.6L569.7,172.1L576.5,222.8L583.2,182.2L590.0,185.0L596.8,183.1L603.6,179.9L610.4,170.5L617.2,169.7L624.0,223.1L630.8,177.5L637.6,184.9L644.4,180.9L651.1,179.3L657.9,171.1L664.7,169.4L671.5,223.8L678.3,178.9" fill="none" stroke="#9aa8bd" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><path d="M678.3,184.3L685.1,183.3L691.9,177.1L698.7,171.8L705.5,170.5L712.3,223.1L719.0,178.7L725.8,184.3L732.6,183.3L739.4,177.1L746.2,171.8L753.0,170.5L759.8,223.1L766.6,178.7L773.4,184.3L780.2,183.3L786.9,177.1L793.7,171.8L800.5,170.5L807.3,223.1L814.1,178.7L820.9,184.3L827.7,183.3L834.5,177.1L841.3,171.8L848.1,170.5L854.8,223.1L861.6,178.7L868.4,184.3L875.2,183.3" fill="none" stroke="#4cceac" stroke-width="2.2" stroke-dasharray="5 4" stroke-linejoin="round"/><line x1="678.3" x2="678.3" y1="20" y2="286" stroke="#3a4a67" stroke-dasharray="3 3"/><text x="74.0" y="310" text-anchor="middle" font-size="11" fill="#8b9cb3">2026-08-17</text><text x="678.3" y="310" text-anchor="middle" font-size="11" fill="#8b9cb3">امروز</text><text x="882.0" y="310" text-anchor="middle" font-size="11" fill="#8b9cb3">2026-12-14</text></svg>
+        <div class="legend">
+          <span><i class="dot dot-actual"></i>واقعی</span>
+          <span><i class="dot dot-forecast"></i>پیش‌بینی</span>
+          <span><i class="dot dot-band"></i>بازهٔ ۹۰٪</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>پیش‌بینی به تفکیک موجودیت</h3>
+        <span class="muted">مقادیر گردشده و سازگار با جمع کل</span>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr>
+            <th scope="col">موجودیت</th><th scope="col">نوع</th>
+            <th scope="col">سفارش D+1</th><th scope="col">سفارش D+7</th>
+            <th scope="col">سفارش روز آخر</th><th scope="col">جمع سفارش دوره</th>
+            <th scope="col">GMV D+1</th><th scope="col">جمع GMV دوره</th>
+            <th scope="col">AOV D+1</th>
+          </tr></thead>
+          <tbody><tr class="is-total"><td>TOTAL</td><td>کل</td><td>۱,۷۳۷</td><td>۱,۸۳۱</td><td>۱,۷۵۴</td><td>۵۲,۱۹۹</td><td>۲,۶۷۸,۸۶۵,۶۳۵</td><td>۸۰,۴۹۴,۱۷۱,۶۶۱</td><td>۱,۵۴۲,۲۳۷</td></tr><tr class=""><td>Snapp-Venture</td><td>ونچر</td><td>۷۶</td><td>۷۷</td><td>۷۶</td><td>۲,۲۵۲</td><td>۵۳,۲۸۹,۵۰۹</td><td>۱,۵۷۹,۰۵۲,۳۰۷</td><td>۷۰۱,۱۷۸</td></tr><tr class=""><td>DIGITAL</td><td>ورتیکال</td><td>۲۲۴</td><td>۲۳۵</td><td>۲۲۸</td><td>۶,۷۷۲</td><td>۲۴۷,۱۶۲,۶۵۸</td><td>۷,۴۷۲,۲۵۶,۷۷۱</td><td>۱,۱۰۳,۴۰۵</td></tr><tr class=""><td>FASHION</td><td>ورتیکال</td><td>۵۲۹</td><td>۵۵۸</td><td>۵۳۲</td><td>۱۵,۷۶۹</td><td>۷۶۱,۱۸۷,۹۱۰</td><td>۲۲,۶۹۰,۳۰۶,۵۳۶</td><td>۱,۴۳۸,۹۱۹</td></tr><tr class=""><td>FMCG</td><td>ورتیکال</td><td>۱۸۷</td><td>۲۰۲</td><td>۱۸۷</td><td>۵,۶۲۲</td><td>۱۱۶,۷۷۲,۰۹۳</td><td>۳,۵۱۰,۶۵۶,۱۹۴</td><td>۶۲۴,۴۵۰</td></tr><tr class=""><td>GOLD</td><td>ورتیکال</td><td>۱۵۹</td><td>۱۶۸</td><td>۱۵۹</td><td>۴,۷۷۴</td><td>۶۷۴,۵۱۸,۷۵۸</td><td>۲۰,۲۵۲,۵۳۱,۷۷۲</td><td>۴,۲۴۲,۲۵۶</td></tr><tr class=""><td>HOME</td><td>ورتیکال</td><td>۱۳۴</td><td>۱۴۰</td><td>۱۳۵</td><td>۴,۰۲۵</td><td>۳۰۷,۵۸۷,۳۱۲</td><td>۹,۲۳۹,۰۹۶,۴۹۳</td><td>۲,۲۹۵,۴۲۸</td></tr><tr class=""><td>H_B</td><td>ورتیکال</td><td>۳۱۱</td><td>۳۲۵</td><td>۳۱۵</td><td>۹,۴۰۶</td><td>۳۰۶,۴۶۰,۰۸۹</td><td>۹,۲۶۸,۶۹۳,۲۳۸</td><td>۹۸۵,۴۰۲</td></tr><tr class=""><td>SERVICES</td><td>ورتیکال</td><td>۱۱۷</td><td>۱۲۶</td><td>۱۲۲</td><td>۳,۵۷۹</td><td>۲۱۱,۸۸۷,۳۰۶</td><td>۶,۴۸۱,۵۷۸,۳۵۰</td><td>۱,۸۱۱,۰۰۳</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" id="quality">
+      <div class="card-head"><h3>کیفیت داده و مدل</h3></div>
+      <div class="split">
+        <div>
+          <h4>رتبه‌بندی مدل‌ها (میانگین بک‌تست)</h4>
+          <div class="table-wrap">
+            <table class="table table-compact">
+              <thead><tr><th scope="col">مدل</th><th scope="col">WAPE</th><th scope="col">Bias</th></tr></thead>
+              <tbody><tr class="is-total"><td>calendar_profile</td><td>۳.۶٪</td><td>-۱.۴٪</td></tr><tr class=""><td>seasonal_naive</td><td>۴.۳٪</td><td>-۱.۵٪</td></tr><tr class=""><td>naive</td><td>۹.۶٪</td><td>۳.۶٪</td></tr><tr class=""><td>drift</td><td>۹.۹٪</td><td>۴.۸٪</td></tr><tr class=""><td>moving_average</td><td>۱۱.۳٪</td><td>-۳.۲٪</td></tr><tr class=""><td>ets</td><td>۱۱.۷٪</td><td>-۰.۹٪</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div>
+          <h4>هشدارها</h4>
+          <ul class="warning-list"><li class="empty">هیچ هشداری ثبت نشد.</li></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <span>دموی استاتیک — خروجی واقعی موتور، محاسبه‌شده هنگام ساخت صفحه</span>
+  <span>BNPL Forecasting Engine</span>
+</footer>
+</div>
+</body>
+</html>

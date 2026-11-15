@@ -391,6 +391,59 @@ def load_workbook(path: str | Path) -> ExcelLoadResult:
     return ExcelLoadResult(facts=facts, reports=reports, source_file=path.name)
 
 
+def load_category_facts(path: str | Path) -> pd.DataFrame:
+    """Load the commercial export at its native grain: date x vertical x category.
+
+    The engine's internal contract aggregates to date x entity, but the
+    delivery workbook is category-level, so the category must survive
+    ingestion. Rows are summed across payment methods only.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise ExcelInputError(f"Workbook not found: {path.name}")
+
+    excel_config = load_excel_config()
+    lookup = build_header_lookup(excel_config)
+    sheets = _read_sheets(path)
+
+    frames: list[pd.DataFrame] = []
+    for _sheet, raw in sheets.items():
+        if raw.empty:
+            continue
+        raw = raw.dropna(how="all")
+        mapped, _ignored = map_columns(raw.columns, lookup)
+        if detect_layout(mapped, excel_config) != "daily_metrics":
+            continue
+        work = pd.DataFrame({c: raw[h] for c, h in mapped.items()})
+        work["date"] = parse_dates(work["date"])
+        work["orders"] = _numeric(work["successful_orders"])
+        work["gmv"] = _numeric(work["gmv"])
+        work["vertical"] = work["vertical"].astype(str).str.strip()
+        work["category"] = (
+            work["category"].astype(str).str.strip() if "category" in work else ""
+        )
+        frames.append(work[["date", "vertical", "category", "orders", "gmv"]])
+
+    if not frames:
+        raise ExcelInputError(
+            f"No sheet in {path.name} has the daily_metrics layout "
+            "(needs date, vertical, orders and GMV)."
+        )
+
+    facts = pd.concat(frames, ignore_index=True)
+    facts = facts[facts["date"].notna() & facts["orders"].notna()].copy()
+    if facts.empty:
+        raise ExcelInputError("No usable rows in the workbook")
+
+    grouped = (
+        facts.groupby(["date", "vertical", "category"], as_index=False)
+        .agg(orders=("orders", "sum"), gmv=("gmv", "sum"))
+        .sort_values(["date", "vertical", "category"])
+        .reset_index(drop=True)
+    )
+    return grouped
+
+
 def template_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
     """The two illustrative sheets written by :func:`write_template`."""
     dates = pd.date_range(end=pd.Timestamp.today().normalize(), periods=14, freq="D")
