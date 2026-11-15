@@ -1,134 +1,362 @@
 # BNPL Daily Order Forecasting Engine
 
-Daily forecasting engine for **successful & finalized BNPL orders** (ClickHouse
-DWH → SQL extraction → Python forecasting), per
-`uploads/BNPL-Daily-Order-Forecasting-Engine.md`.
+**موتور پیش‌بینی روزانهٔ سفارش‌های موفق کسب‌وکار BNPL** — از فایل اکسل تا پیش‌بینی ۳۰ روز آینده با بازهٔ اطمینان و بک‌تست.
 
-This repository currently implements **Phase 0–3 foundations** plus the serving
-contract skeleton. It does **not** yet contain the LightGBM/MLForecast models,
-conformal intervals, SHAP, lifecycle detection or the scenario engine.
+[![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](#)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688?logo=fastapi&logoColor=white)](#)
+[![Tests](https://img.shields.io/badge/tests-98%20passing-2ea44f)](#-تستها)
+[![License](https://img.shields.io/badge/license-proprietary-6b7280)](#)
 
-## Architecture boundaries
+> **بدون اتصال مستقیم به دیتابیس.** ورودی موتور فقط فایل اکسل است. این تصمیم معماری، نه یک محدودیت موقت: هر اجرا روی یک snapshot قابل بازتولید از فایل انجام می‌شود، بنابراین نتایج قابل ممیزی و مستقل از دسترسی به DWH است.
 
-```
-ClickHouse  --SQL-->  extraction  --Python-->  data mart  -->  features
-                                                          -->  backtest
-                                                          -->  forecasts
-```
+---
 
-* SQL lives only in `sql/` (versioned, parameterized templates).
-* Python never holds large inline SQL; it renders templates with validated values.
-* `TOTAL` is **always** derived from leaf entities — never queried independently.
-* Ventures and Verticals are siblings; an order belongs to exactly one leaf.
+## فهرست
 
-## Layout
+- [نمای کلی](#-نمای-کلی)
+- [شروع سریع](#-شروع-سریع)
+- [قالب دادهٔ ورودی](#-قالب-دادهٔ-ورودی)
+- [رابط کاربری](#-رابط-کاربری)
+- [معماری](#-معماری)
+- [ساختار مخزن](#-ساختار-مخزن)
+- [خط لولهٔ پردازش](#-خط-لولهٔ-پردازش)
+- [کیفیت داده](#-کیفیت-داده)
+- [مدل‌ها و ارزیابی](#-مدل‌ها-و-ارزیابی)
+- [تطبیق سلسله‌مراتبی](#-تطبیق-سلسله‌مراتبی)
+- [پیکربندی](#-پیکربندی)
+- [تست‌ها](#-تستها)
+- [Docker](#-docker)
+- [رودمپ](#-رودمپ)
+- [محدودیت‌ها و سؤال‌های باز](#-محدودیتها-و-سؤالهای-باز)
 
-| Path | Purpose |
-| --- | --- |
-| `configs/` | base, database, target, hierarchy, features, entity master |
-| `sql/discovery/` | Phase 0 schema/date/status/mapping validation queries |
-| `sql/extraction/v1/` | daily leaf orders, daily leaf users, calendar |
-| `src/ingestion/` | ClickHouse client, safe SQL rendering, extraction |
-| `src/validation/` | Target Definition + production guards |
-| `src/data_mart/` | Entity Master, daily mart with quality flags |
-| `src/features/` | calendar, lag, rolling features (leakage-safe) |
-| `src/models/` | baseline forecasters |
-| `src/evaluation/` | metrics, rolling-origin backtest |
-| `src/reconciliation/` | summing matrix, bottom-up / MinTrace / top-down, rounding |
-| `src/serving/` | forecast run orchestration + output contract |
-| `scripts/` | discover, extract, build mart, backtest, daily forecast, smoke run |
-| `tests/` | 81 tests covering target, mart, features, leakage, hierarchy, backtest, serving |
+---
 
-## Setup
+## 🎯 نمای کلی
+
+این پروژه یک موتور پیش‌بینی کامل نیست که همه‌چیز را یک‌جا انجام دهد؛ یک سیستم ماژولار است که هر لایهٔ آن جداگانه تست و نسخه‌بندی می‌شود:
+
+| لایه | وضعیت | توضیح |
+| --- | --- | --- |
+| ورودی اکسل | ✅ پیاده‌شده | تشخیص خودکار ساختار، نگاشت ستون فارسی/انگلیسی، تاریخ شمسی |
+| اعتبارسنجی داده | ✅ پیاده‌شده | تفکیک صفر واقعی از دادهٔ گم‌شده، سفارش‌های نگاشت‌نشده |
+| Data Mart روزانه | ✅ پیاده‌شده | گرید `date × entity`، Total مشتق‌شده از Leafها |
+| Feature Engineering | ✅ پایه | تقویم شمسی، lag، rolling بدون نشت داده |
+| مدل‌های Baseline | ✅ پیاده‌شده | Naive, Seasonal Naive, MA, Drift, ETS |
+| بک‌تست | ✅ پیاده‌شده | Rolling-origin با پنجرهٔ گسترده‌شونده (WAPE/Bias) |
+| تطبیق سلسله‌مراتبی | ✅ پیاده‌شده | Bottom-Up, MinTrace, Top-Down + گرد کردن سازگار |
+| بازهٔ اطمینان | ✅ پایه | بازهٔ ۸۰٪/۹۰٪ بر پایهٔ خطای باقی‌مانده |
+| رابط کاربری | ✅ پیاده‌شده | RTL، بدون build، نمودار SVG بومی |
+| مدل LightGBM + MLForecast | ⬜ در رودمپ | فاز ۵ |
+| Conformal Prediction | ⬜ در رودمپ | فاز ۷ |
+| SHAP / Explainability | ⬜ در رودمپ | فاز ۷ |
+| Lifecycle Detection | ⬜ در رودمپ | فاز ۸ |
+| Scenario Engine | ⬜ در رودمپ | فاز ۸ |
+| زمان‌بندی روزانه | ⬜ در رودمپ | فاز ۹ |
+
+---
+
+## 🚀 شروع سریع
 
 ```bash
+# ۱. نصب
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env      # fill ClickHouse credentials (read-only user)
-export $(grep -v '^#' .env | xargs)
+
+# ۲. اجرای رابط کاربری
+uvicorn src.serving.api:app --host 0.0.0.0 --port 8000
+# سپس http://localhost:8000
+
+# ۳. یا اجرای خط فرمان
+python scripts/forecast_from_excel.py --file data/orders.xlsx --horizon 30
+
+# ۴. ساخت قالب اکسل نمونه
+python scripts/forecast_from_excel.py --template data/template.xlsx
 ```
 
-Credentials are read only from environment variables — never from YAML or Git.
+> نیازی به هیچ متغیر محیطی یا اعتبارنامهٔ پایگاه‌داده نیست. کل موتور روی فایل کار می‌کند.
 
-## Usage
+---
+
+## 📊 قالب دادهٔ ورودی
+
+موتور دو ساختار را **خودکار تشخیص** می‌دهد. کافی است یکی از این دو برگه را در فایل داشته باشید:
+
+### الف) داده‌های روزانهٔ تجمیع‌شده (توصیه‌شده)
+
+| ستون | الزامی | نمونه |
+| --- | --- | --- |
+| `date` | ✅ | `2026-11-14` یا `۱۴۰۵-۰۸-۲۳` |
+| `entity_id` | ✅ | `FASHION`، `V001` |
+| `successful_orders` | ✅ | `420` |
+| `entity_type` | ➖ | `VERTICAL` / `VENTURE` |
+
+### ب) سفارش‌های خام (یک ردیف = یک سفارش)
+
+| ستون | الزامی | توضیح |
+| --- | --- | --- |
+| `date` | ✅ | تاریخ سفارش |
+| `order_id` | ✅ | برای حذف تکراری‌ها |
+| `venture_id` | ✅ | شناسهٔ مرچنت/ونچر |
+| `vertical` | ✅* | برای تخصیص به موجودیت |
+| `status` | ➖ | فقط مقادیر موفق نگه داشته می‌شوند (`SETTLE` و معادل‌ها) |
+| `merchant_type` | ➖ | `ONLINE` و غیره |
+| `wallet_id` | ➖ | شناسهٔ کاربر |
+| `amount` | ➖ | مبلغ به ریال |
+| `voucher_discount_amount` | ➖ | تشخیص سفارش ارگانیک |
+| `deleted_at` | ➖ | سفارش‌های حذف‌شده کنار گذاشته می‌شوند |
+| `category` | ➖ | برای تشخیص Ventures |
+
+**نکات مهم نگاشت ستون:**
+
+- نام ستون‌ها **حساس به حروف نیست** و فاصله/زیرخط/نیم‌فاصله مهم نیست.
+- نام‌های **فارسی** پشتیبانی می‌شوند: `تاریخ`، `تعداد سفارش`، `شناسه مرچنت`، `وضعیت` و …
+- ارقام فارسی (`۱۴۰۵`) و عربی (`١٤٠٥`) به‌طور خودکار تبدیل می‌شوند.
+- تاریخ شمسی (سال کمتر از ۱۷۰۰) خودکار به میلادی تبدیل می‌شود.
+- ستون‌های ناشناخته نادیده گرفته می‌شوند و در گزارش کیفیت فهرست می‌شوند.
+
+برای دیدن قالب دقیق: از دکمهٔ **«دانلود قالب اکسل»** در رابط کاربری یا `--template` در CLI استفاده کنید.
+
+---
+
+## 🖥 رابط کاربری
+
+یک صفحهٔ فارسی و کاملاً راست‌چین، بدون build و بدون CDN:
+
+- **Drag & drop** فایل اکسل با اعتبارسنجی پسوند و حجم
+- انتخاب افق پیش‌بینی (۷ تا ۹۰ روز) و مدل (یا انتخاب خودکار بر اساس بک‌تست)
+- کارت‌های KPI: آخرین مقدار واقعی، D+1، D+7، انتهای افق، تعداد موجودیت‌ها
+- نمودار SVG بومی: تاریخچهٔ واقعی + مسیر پیش‌بینی + باند ۹۰٪
+- جدول پیش‌بینی به تفکیک موجودیت با مقادیر گردشدهٔ سازگار با کل
+- جدول رتبه‌بندی مدل‌ها بر اساس WAPE و Bias
+- فهرست هشدارها و برگه‌های خوانده‌شده
+
+دسترس‌پذیری: ناوبری با کیبورد، `skip-link`، برچسب‌های ARIA، کنتراست کافی و احترام به `prefers-reduced-motion`.
+
+---
+
+## 🏗 معماری
+
+```
+┌─────────────┐
+│  Excel file │
+└──────┬──────┘
+       │ src/ingestion/excel.py  (auto layout detection, column mapping)
+       ▼
+┌─────────────────────┐
+│  Leaf facts (date × │
+│  entity, validated) │
+└──────┬──────────────┘
+       │ src/pipeline.py
+       ▼
+┌─────────────────┐    ┌──────────────────┐
+│  Daily data mart│───▶│  Rolling backtest│
+│  (quality flags)│    │  (model selection)│
+└──────┬──────────┘    └──────────────────┘
+       │
+       ▼
+┌─────────────────────┐
+│  Forecast D+1..D+N  │──▶ reconciliation ──▶ coherent_round ──▶ output contract
+└─────────────────────┘
+```
+
+**اصل طراحی:** `TOTAL` هرگز به‌طور مستقل پیش‌بینی نمی‌شود؛ همیشه از جمع Leafها ساخته می‌شود. Ventureها هم‌سطح Verticalها هستند، نه زیرمجموعهٔ آن‌ها.
+
+---
+
+## 📁 ساختار مخزن
+
+```
+configs/
+  base.yaml               تنظیمات کلی، افق‌ها، مدل‌ها
+  excel.yaml              قرارداد ورودی اکسل و نگاشت ستون‌ها
+  target.yaml             تعریف تارگت (DRAFT تا تأیید کسب‌وکار)
+  hierarchy.yaml          نگاشت vertical → شناسهٔ ثابت
+  entity_master.csv       سلسله‌مراتب پیش‌فرض
+  features.yaml           پیکربندی ویژگی‌ها و دسترس‌پذیری
+
+src/
+  pipeline.py             خط لولهٔ اکسل → پیش‌بینی
+  config.py               بارگذاری YAML با جای‌گزینی env
+  ingestion/
+    excel.py              ⭐ ورودی اصلی: تشخیص ساختار، نگاشت، تاریخ شمسی
+    extract.py            استخراج از ClickHouse (اختیاری، legacy)
+    render.py             رندر امن قالب‌های SQL
+    clickhouse_client.py  کلاینت اختیاری
+  validation/target.py    تعریف تارگت و گاردهای production
+  data_mart/
+    orders.py             ساخت mart روزانه با quality flag
+    entity_master.py      سلسله‌مراتب از config
+  features/
+    calendar.py           تقویم شمسی/میلادی
+    lags.py               lag و rolling بدون نشت
+  models/baselines.py     پنج مدل baseline
+  evaluation/
+    metrics.py            WAPE، Bias، MAE، RMSE، MASE، RMSSE
+    backtest.py           rolling-origin
+  reconciliation/
+    summing_matrix.py     ماتریس جمع از Entity Master
+    reconcile.py          Bottom-Up، MinTrace، Top-Down، گرد کردن
+  serving/
+    api.py                FastAPI: صفحه، آپلود، قالب، دادهٔ نمونه
+    service.py            قرارداد خروجی پیش‌بینی
+    templates/index.html
+    static/styles.css, app.js
+  monitoring/             (رزرو برای فاز ۹)
+
+scripts/
+  forecast_from_excel.py  ⭐ CLI اصلی
+  smoke_run.py            اجرای سرتاسری روی دادهٔ مصنوعی
+  discover_sources.py     کشف ClickHouse (اختیاری)
+  extract_history.py      استخراج تاریخی (اختیاری)
+  build_data_mart.py      ساخت mart از snapshot
+  backtest.py             بک‌تست مستقل
+
+sql/                      قالب‌های SQL اختیاری برای آینده
+tests/                    ۹۸ تست
+```
+
+---
+
+## 🔄 خط لولهٔ پردازش
+
+هر اجرا این مراحل را طی می‌کند و هر مرحله قابل شکست است — هیچ خطایی بی‌صدا رد نمی‌شود:
+
+1. **خواندن اکسل** — همهٔ برگه‌ها، حذف ردیف‌های خالی
+2. **تشخیص ساختار** — `raw_orders` یا `daily_aggregated`
+3. **نگاشت ستون‌ها** — فارسی/انگلیسی، ارقام فارسی، تاریخ شمسی
+4. **اعتبارسنجی** — تاریخ، تعداد منفی، تکراری‌ها، وضعیت، حذف نرم
+5. **تخصیص موجودیت** — `vertical` → شناسهٔ ثابت؛ Ventureها شناسهٔ عددی
+6. **ساخت Data Mart** — گرید کامل روزانه با `quality_flag`
+7. **اعتبارسنجی Total** — `TOTAL == Σ(leaves)` برای هر روز
+8. **بک‌تست** — rolling-origin روی همهٔ مدل‌ها
+9. **انتخاب مدل** — کمترین WAPE (یا مدل انتخابی کاربر)
+10. **پیش‌بینی** — D+1 تا D+N برای هر Leaf
+11. **تطبیق** — Bottom-Up
+12. **گرد کردن** — Leafها گرد، Parentها جمع دقیق
+13. **اعتبارسنجی خروجی** — عدم منفی بودن، ترتیب بازه‌ها، کامل بودن افق
+
+---
+
+## 🧪 کیفیت داده
+
+| Flag | معنا | مقدار |
+| --- | --- | --- |
+| `OBSERVED` | داده واقعی موجود است | مقدار واقعی (صفر مجاز) |
+| `MISSING_SOURCE` | برای آن تاریخ داده‌ای نبوده | `NA` — هرگز صفر نمی‌شود |
+| `ENTITY_NOT_ACTIVE` | موجودیت هنوز شروع نشده | `NA` |
+| `ENTITY_DEACTIVATED` | موجودیت غیرفعال شده | `NA` |
+
+سفارش‌هایی که به هیچ موجودیتی تخصیص نمی‌یابند `UNMAPPED` می‌شوند، شمرده می‌شوند و در هشدارها گزارش می‌شوند — حذف نمی‌شوند.
+
+---
+
+## 📈 مدل‌ها و ارزیابی
+
+**Baselineها (فاز فعال):** `naive`، `seasonal_naive` (دورهٔ ۷)، `moving_average`، `drift`، `ets` (Holt با هموارسازی ثابت).
+
+**معیار اصلی:** `WAPE` — چون با صفرها و مقادیر کوچک پایدار است. `MAPE` معیار اصلی نیست.
+
+```
+WAPE  = Σ|Actual − Forecast| / Σ|Actual|
+Bias  = Σ(Forecast − Actual) / Σ|Actual|
+```
+
+**بک‌تست:** فقط rolling-origin با پنجرهٔ گسترده‌شونده. تقسیم تصادفی train/test در هیچ نقطه‌ای از کد وجود ندارد. خروجی: `wape`/`bias` به تفکیک مدل، موجودیت و بازهٔ افق (D+1، D+1..D+7، D+8..D+30).
+
+---
+
+## 🧮 تطبیق سلسله‌مراتبی
+
+```
+TOTAL = Σ(VERTICAL) + Σ(VENTURE)
+```
+
+- **Bottom-Up** (پیش‌فرض): تضمین‌شده سازگار.
+- **MinTrace**: تصویر پیش‌بینی‌های پایه روی زیرفضای سازگار.
+- **Top-Down**: تخصیص پیش‌بینی کل بر اساس سهم تاریخی هر Leaf.
+
+**گرد کردن سازگار:** ابتدا Leafها گرد می‌شوند، سپس Parentها از جمع دقیق همان Leafهای گردشده ساخته می‌شوند. مجموع فرزندان همیشه دقیقاً برابر والد است.
+
+---
+
+## ⚙️ پیکربندی
+
+| فایل | نقش |
+| --- | --- |
+| `configs/excel.yaml` | ساختارهای پشتیبانی‌شده، نام‌های ستون، وضعیت‌های موفق |
+| `configs/hierarchy.yaml` | نگاشت `vertical` منبع → شناسهٔ ثابت (`H&B` → `H_B`) |
+| `configs/target.yaml` | تعریف تارگت؛ تا تأیید کسب‌وکار `DRAFT` است |
+| `configs/base.yaml` | افق‌ها، مدل‌ها، روش ارزیابی |
+
+هیچ اعتبارنامه‌ای در YAML ذخیره نمی‌شود. مسیر ClickHouse اختیاری و کاملاً جدا از مسیر اکسل است (متغیرهای `CLICKHOUSE_*` در `.env`).
+
+---
+
+## ✅ تست‌ها
 
 ```bash
-# Phase 0 — source discovery reports
-python scripts/discover_sources.py --start 2024-01-01 --end 2024-07-01
-
-# Phase 1 — historical extraction (monthly partitions, snapshot metadata)
-python scripts/extract_history.py --start 2023-01-01 --end 2026-11-01 --monthly
-
-# Phase 2 — daily data mart
-python scripts/build_data_mart.py --snapshot artifacts/extracts/<snapshot_id>
-
-# Phase 3 — rolling-origin baseline backtest
-python scripts/backtest.py --mart artifacts/marts/<id>/fact_daily_entity_metrics.parquet \
-    --horizon 30 --step 7
-
-# Daily forecast (D+1..D+30, reconciled, with intervals)
-python scripts/daily_forecast.py --mart <mart.parquet> --origin 2026-11-14 \
-    --model seasonal_naive
-
-# End-to-end proof on synthetic data (no ClickHouse needed)
-python scripts/smoke_run.py
-
-# Tests
-python -m pytest
+python -m pytest          # ۹۸ تست
+python scripts/smoke_run.py   # اجرای سرتاسری روی دادهٔ مصنوعی
 ```
 
-## Target Definition is a draft until business approves
-
-`configs/target.yaml` intentionally holds `null` for three decisions:
-
-| Field | Meaning |
+| فایل | پوشش |
 | --- | --- |
-| `exclude_deleted` | are soft-deleted orders excluded from the target? |
-| `date_field` | `registered_date` or `created_date`? |
-| `reversal_policy` | does a later reversed/refunded order stay in history? |
+| `test_excel.py` | تشخیص ساختار، نگاشت ستون، تاریخ شمسی، خط لوله |
+| `test_data_quality.py` | گرید mart، صفر در برابر گم‌شده، Total |
+| `test_features.py` | صحت lag/rolling/تقویم + تست نشت داده |
+| `test_backtesting.py` | rolling-origin، معیارها |
+| `test_reconciliation.py` | ماتریس جمع، سه روش تطبیق، گرد کردن |
+| `test_serving.py` | قرارداد خروجی و گاردها |
+| `test_target.py` | گاردهای تعریف تارگت، امنیت SQL |
+| `test_sql_contract.py` | قرارداد قالب‌های SQL اختیاری |
 
-`scripts/extract_history.py` **refuses to run** unless these are resolved and
-`definition_status: APPROVED` (`--allow-draft` exists for development only).
-The Commercial-only exclusions (`Snapp-Venture`, `in_store`, `social`,
-`ventures`) are deliberately **not** applied to the engine target; they belong
-to a separate reporting scope.
+---
 
-## Data quality semantics
+## 🐳 Docker
 
-`src/data_mart/orders.py` distinguishes, per entity-day:
+```bash
+docker compose up --build
+# http://localhost:8000
+```
 
-* `OBSERVED` — genuine value, including a true zero;
-* `MISSING_SOURCE` — no source data for that date → value stays unknown (never 0);
-* `ENTITY_NOT_ACTIVE` / `ENTITY_DEACTIVATED` — outside the entity's validity window.
+تصویر شامل healthcheck روی `/healthz` است و `artifacts/` و `reports/` را به‌صورت volume نگه می‌دارد.
 
-Unmapped orders are returned by SQL as `entity_type = 'UNMAPPED'` and written to
-`unmapped_orders.csv`; they are never silently dropped.
+---
 
-## Known limitations / open questions
+## 🗺 رودمپ
 
-1. **ClickHouse was not reachable in this environment.** All SQL is written from
-   the architecture document; it must be validated by `scripts/discover_sources.py`
-   before any production extraction.
-2. **`commercial_data.venture_id` uniqueness is unproven.** `daily_leaf_orders.sql`
-   groups by `venture_id` with `HAVING count() = 1`, so duplicate mappings are
-   excluded from classification (they surface as `UNMAPPED`) until a real
-   effective-dated/version column is confirmed. No timestamp column was invented.
-3. **The entity master contains only the seven verticals.** Real venture IDs must
-   be added from `fms_credit.tbl_venture` + `commercial_data` (Venture IDs are
-   stable, not names).
-4. **The venture classification rule (`vertical = 'Snapp-Venture' OR
-   category = 'ventures'`) is unverified** and may overlap; it is applied once
-   via `multiIf`.
-5. **User-level features are per-leaf only.** Total-level user metrics must be
-   recomputed over the full population (one wallet can transact in several
-   entities); the current serving layer only forecasts orders.
-6. **Baselines use a fixed-smoothing Holt stand-in for ETS.** Production
-   ETS/AutoARIMA come from `statsforecast` in Phase 3.
-7. **Intervals are horizon-scaled residual approximations**, not yet conformal
-   prediction; coverage has not been measured.
-8. **No scheduler, Docker image or FastAPI app yet** (Phase 9).
+| فاز | عنوان | وضعیت |
+| --- | --- | --- |
+| ۰ | قرارداد کسب‌وکار و ورودی اکسل | ✅ انجام‌شده |
+| ۱ | لایهٔ استخراج (اکسل) | ✅ انجام‌شده |
+| ۲ | Data Mart و کیفیت داده | ✅ انجام‌شده |
+| ۳ | پیش‌بینی Baseline و بک‌تست | ✅ انجام‌شده |
+| ۴ | Feature Engineering کامل (کاربر/مرچنت/کمپین) | 🔄 در جریان |
+| ۵ | مدل ML سراسری (LightGBM + MLForecast) | ⬜ |
+| ۶ | تطبیق سلسله‌مراتبی پیشرفته | 🟡 پایه انجام‌شده |
+| ۷ | بازهٔ اطمینان + Explainability | 🟡 پایه انجام‌شده |
+| ۸ | Lifecycle و Scenario Engine | ⬜ |
+| ۹ | استقرار production و مانیتورینگ | ⬜ |
 
-## Next step
+جزئیات کامل با معیارهای خروج در [`ROADMAP.md`](ROADMAP.md).
 
-Run `discover_sources.py` against a read-only ClickHouse account, resolve the
-three Target Definition decisions, then populate the Entity Master with real
-venture IDs before the first historical extraction.
+---
+
+## ⚠️ محدودیت‌ها و سؤال‌های باز
+
+1. **مدل‌های ML سنگین نصب نشده‌اند.** LightGBM/MLForecast/StatsForecast در `requirements.txt` کامنت شده‌اند و باید روی سرور نصب شوند (کانتینر توسعه محدودیت حافظه دارد).
+2. **بازه‌های اطمینان هنوز conformal نیستند** — تقریب مقیاس‌شده با افق بر پایهٔ خطای باقی‌مانده. پوشش تجربی اندازه‌گیری نشده.
+3. **سه تصمیم تعریف تارگت باز است:** حذف سفارش‌های soft-deleted، فیلد تاریخ (`registered_date` یا `created_date`) و سیاست برگشت/ریفاند.
+4. **مسیر ClickHouse اختیاری و تأییدنشده است.** SQL موجود بر اساس سند معماری نوشته شده و روی محیط واقعی اجرا نشده؛ برای موتور فعلی لازم نیست.
+5. **قاعدهٔ تشخیص Venture** (`vertical = 'Snapp-Venture'` یا `category = 'ventures'`) از سند آمده و با دادهٔ واقعی تأیید نشده است.
+6. **ویژگی‌های کاربر/مرچنت/کمپین** هنوز ساخته نشده‌اند؛ فعلاً فقط سری سفارش و تقویم در مدل‌سازی استفاده می‌شود.
+
+---
+
+## 🤝 مشارکت
+
+پیش از هر تغییر معنایی: `python -m pytest` را اجرا کنید. پیام کامیت باید نتیجهٔ واقعی تغییر را توصیف کند، نه فرایند را. برای هر کامیت، بخش مرتبط README به‌روز می‌شود.
+
+---
+
+<p align="center"><sub>ساخته‌شده برای تصمیم‌گیری روزانه — دادهٔ قابل اعتماد مهم‌تر از مدل پیچیده است.</sub></p>
