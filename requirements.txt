@@ -1,10 +1,16 @@
 pandas>=2.2
 numpy>=1.26
 pyyaml>=6.0
-clickhouse-connect>=0.8
 jdatetime>=5.0
+openpyxl>=3.1
 pyarrow>=15.0
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
 pytest>=8.0
+
+# Optional ClickHouse path (legacy; the engine itself is Excel-only)
+# clickhouse-connect>=0.8
 
 # Phase 3+ (heavy; install on the server, not in the dev container)
 # statsforecast>=1.7
@@ -13,5 +19,3 @@ pytest>=8.0
 # hierarchicalforecast>=0.4
 # ruptures>=1.1
 # shap>=0.45
-# fastapi>=0.110
-# uvicorn>=0.29
