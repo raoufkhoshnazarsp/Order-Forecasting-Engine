@@ -100,7 +100,20 @@ main {
   display: flex; align-items: center; justify-content: space-between;
   gap: .75rem; flex-wrap: wrap; margin-bottom: 1rem;
 }
-.head-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.head-actions { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+
+.segmented {
+  display: inline-flex; padding: 3px; gap: 2px;
+  background: var(--surface-alt, #f1f4f9); border-radius: 999px;
+  border: 1px solid var(--border, #e3e8f0);
+}
+.seg {
+  border: 0; background: transparent; cursor: pointer; font-family: inherit;
+  font-size: .82rem; font-weight: 600; color: var(--text-muted);
+  padding: .34rem .85rem; border-radius: 999px; transition: background .15s, color .15s;
+}
+.seg:hover { color: var(--text, #1f2733); }
+.seg.is-active { background: #fff; color: var(--brand, #1c5fd4); box-shadow: 0 1px 3px rgba(20, 40, 80, .12); }
 
 .muted { color: var(--text-muted); font-size: .82rem; }
 

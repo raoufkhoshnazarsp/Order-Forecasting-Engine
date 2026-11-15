@@ -108,7 +108,7 @@ def _chart_payload(result) -> dict:
         (result.forecast["entity_id"] == total_id)
         & (result.forecast["reconciled_yhat"].notna())
     ].sort_values("horizon")
-    return {
+    payload = {
         "history": {
             "labels": [pd_date(d) for d in history["date"]],
             "values": [float(v) for v in history["successful_orders"]],
@@ -121,13 +121,56 @@ def _chart_payload(result) -> dict:
         },
     }
 
+    if result.gmv_forecast is not None and "gmv" in mart.columns:
+        gmv_history = history[history["gmv"].notna()]
+        gmv_fc = result.gmv_forecast[
+            result.gmv_forecast["entity_id"] == total_id
+        ].sort_values("horizon")
+        payload["gmv"] = {
+            "history": {
+                "labels": [pd_date(d) for d in gmv_history["date"]],
+                "values": [float(v) for v in gmv_history["gmv"]],
+            },
+            "forecast": {
+                "labels": [pd_date(d) for d in gmv_fc["target_date"]],
+                "values": [round(float(v), 1) for v in gmv_fc["gmv_yhat"]],
+                "lower": [round(float(v), 1) for v in gmv_fc["gmv_lower_90"]],
+                "upper": [round(float(v), 1) for v in gmv_fc["gmv_upper_90"]],
+            },
+        }
+        aov_history = gmv_history[gmv_history["successful_orders"] > 0]
+        payload["aov"] = {
+            "history": {
+                "labels": [pd_date(d) for d in aov_history["date"]],
+                "values": [
+                    float(g) / float(o)
+                    for g, o in zip(aov_history["gmv"], aov_history["successful_orders"])
+                ],
+            },
+            "forecast": {
+                "labels": [pd_date(d) for d in gmv_fc["target_date"]],
+                "values": [round(float(v), 1) for v in gmv_fc["aov_yhat"]],
+            },
+        }
+    return payload
+
 
 def _entity_table(result) -> list[dict]:
     assert result.forecast is not None
+    gmv_by_entity: dict[str, dict] = {}
+    if result.gmv_forecast is not None:
+        for entity_id, chunk in result.gmv_forecast.groupby("entity_id"):
+            chunk = chunk.sort_values("horizon")
+            gmv_by_entity[str(entity_id)] = {
+                "gmv_d1": _round(chunk["gmv_yhat"].iloc[0]),
+                "gmv_total_30": _round(chunk["gmv_yhat"].sum()),
+                "aov_d1": _round(chunk["aov_yhat"].iloc[0]),
+            }
     rows = []
     for entity_id, chunk in result.forecast.groupby("entity_id"):
         chunk = chunk.sort_values("horizon")
         by_h = chunk.set_index("horizon")["reconciled_yhat"]
+        extra = gmv_by_entity.get(str(entity_id), {})
         rows.append(
             {
                 "entity_id": entity_id,
@@ -136,6 +179,9 @@ def _entity_table(result) -> list[dict]:
                 "d7": _round(by_h.get(7)),
                 "d30": _round(by_h.get(len(by_h))),
                 "total_30": _round(by_h.sum()),
+                "gmv_d1": extra.get("gmv_d1"),
+                "gmv_total_30": extra.get("gmv_total_30"),
+                "aov_d1": extra.get("aov_d1"),
             }
         )
     return sorted(rows, key=lambda r: (r["entity_type"] != "TOTAL",

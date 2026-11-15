@@ -19,7 +19,8 @@ from src.data_mart.entity_master import EntityMaster
 from src.data_mart.orders import build_daily_mart, validate_total_reconciliation
 from src.evaluation.backtest import BacktestConfig, backtest, horizon_accuracy, summarize
 from src.ingestion.excel import ExcelLoadResult, load_workbook
-from src.models.baselines import BASELINES
+from src.models.baselines import BASELINES, moving_average
+from src.serving.gmv import combine_gmv, forecast_aov, has_gmv, validate_gmv
 from src.serving.service import RunContext, run_forecast
 
 
@@ -45,6 +46,13 @@ class PipelineResult:
     forecast: pd.DataFrame | None = None
     mart: pd.DataFrame | None = None
     sheet_reports: list[dict[str, Any]] = field(default_factory=list)
+    gmv_forecast: pd.DataFrame | None = None
+    aov_forecast: pd.DataFrame | None = None
+    total_gmv_forecast: dict[int, float] = field(default_factory=dict)
+    total_aov_forecast: dict[int, float] = field(default_factory=dict)
+    total_last_actual_gmv: float | None = None
+    total_last_actual_aov: float | None = None
+    dropped_partial_days: list[str] = field(default_factory=list)
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -59,6 +67,15 @@ class PipelineResult:
             "unmapped_orders": self.unmapped_orders,
             "total_last_actual": self.total_last_actual,
             "total_forecast": {f"D+{k}": v for k, v in sorted(self.total_forecast.items())},
+            "total_last_actual_gmv": self.total_last_actual_gmv,
+            "total_last_actual_aov": self.total_last_actual_aov,
+            "total_gmv_forecast": {
+                f"D+{k}": v for k, v in sorted(self.total_gmv_forecast.items())
+            },
+            "total_aov_forecast": {
+                f"D+{k}": v for k, v in sorted(self.total_aov_forecast.items())
+            },
+            "dropped_partial_days": self.dropped_partial_days,
             "backtest_ranking": self.backtest_ranking,
             "warnings": self.warnings,
             "sheets": self.sheet_reports,
@@ -125,6 +142,42 @@ def entity_master_for_workbook(
     return EntityMaster(pd.DataFrame(rows))
 
 
+def _drop_partial_last_day(
+    observed_rows: pd.DataFrame, total_id: str, warnings: list[str]
+) -> tuple[pd.DataFrame, list[str]]:
+    """Exclude a trailing day that is clearly incomplete.
+
+    An export taken mid-day contains a partial final day. Training on it would
+    teach the model a fake collapse. The last day is dropped only when it is
+    below 70% of the median of the same weekday over the previous four weeks,
+    so a genuine low day is never removed.
+    """
+    totals = (
+        observed_rows[observed_rows["entity_id"] == total_id]
+        .assign(date=lambda d: pd.to_datetime(d["date"]))
+        .set_index("date")["successful_orders"]
+        .sort_index()
+    )
+    if len(totals) < 8:
+        return observed_rows, []
+    last = totals.index.max()
+    history = totals[totals.index < last]
+    same_weekday = history[history.index.day_of_week == last.day_of_week].iloc[-4:]
+    if len(same_weekday) < 2:
+        return observed_rows, []
+    baseline = float(same_weekday.median())
+    if baseline <= 0 or float(totals.loc[last]) >= 0.7 * baseline:
+        return observed_rows, []
+
+    dropped = last.date().isoformat()
+    warnings.append(
+        f"Partial day {dropped} excluded from training: "
+        f"{int(totals.loc[last]):,} orders vs {int(baseline):,} typical for that weekday."
+    )
+    kept = observed_rows[pd.to_datetime(observed_rows["date"]).dt.date != last.date()]
+    return kept, [dropped]
+
+
 def run_pipeline(
     workbook_path: str | Path,
     *,
@@ -184,6 +237,12 @@ def run_pipeline(
     observed_rows["successful_orders"] = observed_rows["successful_orders"].astype("int64")
 
     warnings = list(loaded.warnings)
+    observed_rows, dropped_partial = _drop_partial_last_day(
+        observed_rows, master.total_id(), warnings
+    )
+    if dropped_partial:
+        observed = {d for d in observed if d.isoformat() not in dropped_partial}
+
     if not unmapped.empty:
         warnings.append(
             f"{int(unmapped['successful_orders'].sum())} orders could not be mapped to an "
@@ -247,6 +306,55 @@ def run_pipeline(
     ]["successful_orders"]
     last_total_value = int(last_total.iloc[-1]) if not last_total.empty else None
 
+    gmv_forecast = None
+    aov_forecast = None
+    total_gmv_forecast: dict[int, float] = {}
+    total_aov_forecast: dict[int, float] = {}
+    last_gmv = None
+    last_aov = None
+
+    if has_gmv(observed_rows):
+        try:
+            # AOV is a ratio, so its day-to-day noise is not signal. A 14-day
+            # moving average is the stable choice regardless of which model
+            # won the order backtest.
+            aov_forecast = forecast_aov(
+                observed_rows, master, lambda s, h: moving_average(s, h, window=14),
+                context=context, horizon=horizon,
+            )
+            gmv_forecast = combine_gmv(forecast, aov_forecast, master)
+            validate_gmv(gmv_forecast, master)
+            total_gmv = gmv_forecast[
+                gmv_forecast["entity_id"] == master.total_id()
+            ].set_index("horizon")
+            total_gmv_forecast = {
+                int(h): float(total_gmv.loc[h, "gmv_yhat"]) for h in total_gmv.index
+            }
+            total_aov_forecast = {
+                int(h): float(total_gmv.loc[h, "aov_yhat"]) for h in total_gmv.index
+            }
+            last_total_rows = observed_rows[
+                observed_rows["entity_id"] == master.total_id()
+            ].sort_values("date")
+            if not last_total_rows.empty:
+                last_row = last_total_rows.iloc[-1]
+                last_gmv = float(last_row["gmv"])
+                last_aov = (
+                    float(last_row["gmv"]) / float(last_row["successful_orders"])
+                    if float(last_row["successful_orders"]) > 0
+                    else None
+                )
+        except Exception as exc:  # noqa: BLE001 - GMV is additive value, never blocks orders
+            warnings.append(f"GMV/AOV forecast skipped: {exc}")
+            gmv_forecast = None
+            aov_forecast = None
+            total_gmv_forecast = {}
+            total_aov_forecast = {}
+    else:
+        warnings.append(
+            "Workbook has no GMV column, so AOV and GMV forecasts were not produced."
+        )
+
     return PipelineResult(
         run_id=context.forecast_run_id,
         source_file=loaded.source_file,
@@ -264,4 +372,11 @@ def run_pipeline(
         forecast=forecast,
         mart=mart,
         sheet_reports=[r.as_dict() for r in loaded.reports],
+        gmv_forecast=gmv_forecast,
+        aov_forecast=aov_forecast,
+        total_gmv_forecast=total_gmv_forecast,
+        total_aov_forecast=total_aov_forecast,
+        total_last_actual_gmv=last_gmv,
+        total_last_actual_aov=last_aov,
+        dropped_partial_days=dropped_partial,
     )

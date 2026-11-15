@@ -14,6 +14,9 @@
   const fa = new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 0 });
   const fa1 = new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 1 });
 
+  let lastChart = null;
+  let currentMetric = "orders";
+
   function formatNumber(value) {
     if (value === null || value === undefined || Number.isNaN(value)) return "—";
     return fa.format(value);
@@ -107,7 +110,12 @@
 
   function render(data) {
     renderKpis(data);
-    renderChart(data.chart);
+    lastChart = data.chart;
+    currentMetric = "orders";
+    document.querySelectorAll("#metric-switch .seg").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.metric === "orders");
+    });
+    renderChart(data.chart, currentMetric);
     renderEntityTable(data.entities_table);
     renderModelTable(data.backtest_ranking);
     renderWarnings(data.warnings);
@@ -115,6 +123,17 @@
     document.getElementById("chart-badge").textContent =
       "مدل: " + modelLabel(data.model) + " · افق " + formatNumber(data.horizon) + " روز";
   }
+
+  document.querySelectorAll("#metric-switch .seg").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!lastChart) return;
+      currentMetric = btn.dataset.metric;
+      document.querySelectorAll("#metric-switch .seg").forEach((other) => {
+        other.classList.toggle("is-active", other === btn);
+      });
+      renderChart(lastChart, currentMetric);
+    });
+  });
 
   function modelLabel(name) {
     const labels = {
@@ -124,6 +143,7 @@
       moving_average: "میانگین متحرک",
       ets: "ETS",
       drift: "روند خطی",
+      calendar_profile: "پروفایل تقویم شمسی",
     };
     return labels[name] || name;
   }
@@ -138,6 +158,9 @@
       data.total_last_actual && d1
         ? ((d1 - data.total_last_actual) / data.total_last_actual) * 100
         : null;
+
+    const gmvD1 = data.total_gmv_forecast ? data.total_gmv_forecast["D+1"] : null;
+    const aovD1 = data.total_aov_forecast ? data.total_aov_forecast["D+1"] : null;
 
     const cards = [
       {
@@ -165,6 +188,18 @@
         cls: "kpi-good",
       },
       {
+        label: "GMV فردا (D+1)",
+        value: gmvD1 === null ? "—" : formatNumber(gmvD1),
+        sub: "سفارش × AOV",
+        cls: "kpi-accent",
+      },
+      {
+        label: "AOV فردا (D+1)",
+        value: aovD1 === null ? "—" : formatNumber(aovD1),
+        sub: "میانگین ارزش هر سفارش",
+        cls: "",
+      },
+      {
         label: "موجودیت‌های فعال",
         value: formatNumber(data.entities.length),
         sub: formatNumber(data.mart_rows) + " ردیف در داده روزانه",
@@ -184,10 +219,19 @@
     });
   }
 
-  function renderChart(chart) {
+  function renderChart(chart, metric) {
     const svg = document.getElementById("chart");
     svg.innerHTML = "";
-    if (!chart || !chart.history.values.length) return;
+    if (!chart) return;
+
+    let series = chart;
+    if (metric === "gmv" || metric === "aov") {
+      series = chart[metric];
+    }
+    if (!series || !series.history || !series.history.values.length) {
+      svg.innerHTML = '<text x="400" y="150" text-anchor="middle" fill="#8a93a6">داده‌ای برای این شاخص موجود نیست</text>';
+      return;
+    }
 
     const W = 800;
     const H = 300;
@@ -195,11 +239,12 @@
     const innerW = W - pad.left - pad.right;
     const innerH = H - pad.top - pad.bottom;
 
-    const history = chart.history;
-    const forecast = chart.forecast;
+    const history = series.history;
+    const forecast = series.forecast;
+    const hasBand = Array.isArray(forecast.upper) && Array.isArray(forecast.lower);
     const allValues = history.values
       .concat(forecast.values)
-      .concat(forecast.upper)
+      .concat(hasBand ? forecast.upper : [])
       .filter((v) => v !== null && v !== undefined);
     const maxValue = Math.max.apply(null, allValues) * 1.08 || 1;
     const totalPoints = history.values.length + forecast.values.length;
@@ -232,12 +277,14 @@
     const histIndex = history.values.length - 1;
 
     // 90% band for the forecast
-    const upper = forecast.upper.map((v, i) => [x(histIndex + i), y(v)]);
-    const lower = forecast.lower.map((v, i) => [x(histIndex + i), y(v)]).reverse();
-    const bandPath =
-      "M" + upper.map((p) => p.join(",")).join("L") +
-      "L" + lower.map((p) => p.join(",")).join("L") + "Z";
-    svg.appendChild(make("path", { d: bandPath, fill: "#cfdcf7", opacity: "0.55" }));
+    if (hasBand) {
+      const upper = forecast.upper.map((v, i) => [x(histIndex + i), y(v)]);
+      const lower = forecast.lower.map((v, i) => [x(histIndex + i), y(v)]).reverse();
+      const bandPath =
+        "M" + upper.map((p) => p.join(",")).join("L") +
+        "L" + lower.map((p) => p.join(",")).join("L") + "Z";
+      svg.appendChild(make("path", { d: bandPath, fill: "#cfdcf7", opacity: "0.55" }));
+    }
 
     const linePath = (values, offset) =>
       "M" + values.map((v, i) => [x(offset + i), y(v)].join(",")).join("L");
@@ -287,7 +334,9 @@
       if (row.entity_type === "TOTAL") tr.className = "is-total";
       const typeLabel = row.entity_type === "TOTAL" ? "کل" : row.entity_type === "VENTURE" ? "ونچر" : "ورتیکال";
       [row.entity_id, typeLabel, formatNumber(row.d1), formatNumber(row.d7),
-       formatNumber(row.d30), formatNumber(row.total_30)].forEach((value) => {
+       formatNumber(row.d30), formatNumber(row.total_30),
+       formatNumber(row.gmv_d1), formatNumber(row.gmv_total_30),
+       formatNumber(row.aov_d1)].forEach((value) => {
         const td = document.createElement("td");
         td.textContent = value;
         tr.appendChild(td);
@@ -337,7 +386,8 @@
     (sheets || []).forEach((sheet) => {
       const li = document.createElement("li");
       const layout = sheet.layout === "raw_orders" ? "سفارش خام" :
-        sheet.layout === "daily_aggregated" ? "روزانه تجمیع‌شده" : "نامشخص";
+        sheet.layout === "daily_aggregated" ? "روزانه تجمیع‌شده" :
+        sheet.layout === "daily_metrics" ? "مدل داده تجاری (سفارش + GMV)" : "نامشخص";
       li.innerHTML = "<code></code> — " + layout + " · " + formatNumber(sheet.rows_used) + " سفارش";
       li.querySelector("code").textContent = sheet.sheet;
       list.appendChild(li);

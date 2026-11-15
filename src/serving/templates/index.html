@@ -78,6 +78,7 @@
               <option value="moving_average">میانگین متحرک</option>
               <option value="ets">ETS</option>
               <option value="drift">روند خطی</option>
+              <option value="calendar_profile">پروفایل تقویم شمسی</option>
             </select>
           </label>
           <button type="submit" class="btn btn-primary" id="submit-btn">
@@ -99,11 +100,18 @@
       <div class="card">
         <div class="card-head">
           <h3>مسیر پیش‌بینی کل کسب‌وکار</h3>
-          <span class="badge" id="chart-badge"></span>
+          <div class="head-actions">
+            <div class="segmented" id="metric-switch" role="tablist" aria-label="انتخاب شاخص">
+              <button type="button" class="seg is-active" data-metric="orders" role="tab">سفارش</button>
+              <button type="button" class="seg" data-metric="gmv" role="tab">GMV</button>
+              <button type="button" class="seg" data-metric="aov" role="tab">AOV</button>
+            </div>
+            <span class="badge" id="chart-badge"></span>
+          </div>
         </div>
         <div class="chart-wrap">
           <svg id="chart" viewBox="0 0 800 300" role="img"
-               aria-label="نمودار سفارش واقعی و پیش‌بینی‌شده"></svg>
+               aria-label="نمودار مقدار واقعی و پیش‌بینی‌شده"></svg>
           <div class="legend">
             <span><i class="dot dot-actual"></i>واقعی</span>
             <span><i class="dot dot-forecast"></i>پیش‌بینی</span>
@@ -123,10 +131,13 @@
               <tr>
                 <th scope="col">موجودیت</th>
                 <th scope="col">نوع</th>
-                <th scope="col">D+1</th>
-                <th scope="col">D+7</th>
-                <th scope="col">روز آخر</th>
-                <th scope="col">جمع دوره</th>
+                <th scope="col">سفارش D+1</th>
+                <th scope="col">سفارش D+7</th>
+                <th scope="col">سفارش روز آخر</th>
+                <th scope="col">جمع سفارش دوره</th>
+                <th scope="col">GMV D+1</th>
+                <th scope="col">جمع GMV دوره</th>
+                <th scope="col">AOV D+1</th>
               </tr>
             </thead>
             <tbody></tbody>

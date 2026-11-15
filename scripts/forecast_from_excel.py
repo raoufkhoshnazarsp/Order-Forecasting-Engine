@@ -44,6 +44,10 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     assert result.forecast is not None
     result.forecast.to_csv(out_dir / "forecast.csv", index=False, encoding="utf-8-sig")
+    if result.gmv_forecast is not None:
+        result.gmv_forecast.to_csv(out_dir / "gmv_forecast.csv", index=False, encoding="utf-8-sig")
+    if result.aov_forecast is not None:
+        result.aov_forecast.to_csv(out_dir / "aov_forecast.csv", index=False, encoding="utf-8-sig")
     (out_dir / "summary.json").write_text(result.to_json(), encoding="utf-8")
 
     print(result.to_json())
