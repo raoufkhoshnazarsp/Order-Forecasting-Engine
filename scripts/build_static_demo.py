@@ -278,9 +278,11 @@ def render(result, out_dir: Path) -> Path:
   </div>
   <nav class="side-nav" aria-label="ناوبری اصلی">
     <p class="side-nav-title">داشبورد</p>
+    <a href="/">اجرای پیش‌بینی</a>
+    <a href="/comparison">مقایسهٔ ماهانه</a>
+    <a href="/report/" aria-current="page">گزارش استاتیک</a>
     <a href="#results">نتیجهٔ پیش‌بینی</a>
     <a href="#quality">کیفیت داده و مدل</a>
-    <a href="https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine">مخزن پروژه</a>
   </nav>
   <div class="side-foot">دموی استاتیک<br />خروجی واقعی موتور</div>
 </aside>

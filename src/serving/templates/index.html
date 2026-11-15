@@ -9,59 +9,7 @@
 <body>
   <a class="skip-link" href="#main">پرش به محتوای اصلی</a>
 
-  <aside class="sidebar">
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true"></span>
-      <div>
-        <div class="brand-name">Forecast Studio</div>
-        <div class="brand-sub">موتور پیش‌بینی روزانهٔ سفارش BNPL</div>
-      </div>
-    </div>
-
-    <nav class="side-nav" aria-label="ناوبری اصلی">
-      <p class="side-nav-title">داشبورد</p>
-      <a href="#upload">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>
-        </svg>
-        بارگذاری داده
-      </a>
-      <a href="#results">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15l4-5 3 3 4-6"/>
-        </svg>
-        نتیجهٔ پیش‌بینی
-      </a>
-      <a href="/comparison">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15l4-5 3 3 4-6"/>
-        </svg>
-        مقایسهٔ ماهانه
-      </a>
-      <a href="#quality">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/><path d="M9 12l2 2 4-4"/>
-        </svg>
-        کیفیت داده و مدل
-      </a>
-      <a href="/api/docs" target="_blank" rel="noopener">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M8 6l-4 6 4 6"/><path d="M16 6l4 6-4 6"/>
-        </svg>
-        مستندات API
-      </a>
-    </nav>
-
-    <div class="side-foot">
-      پردازش کاملاً محلی روی فایل اکسل<br />
-      بدون اتصال به دیتابیس
-    </div>
-  </aside>
+  {{> _sidebar.html}}
 
   <div class="shell">
     <header class="topbar">
@@ -73,10 +21,25 @@
     </header>
 
     <main id="main">
+      <p class="run-strip" id="last-run" hidden></p>
+
       <section class="hero">
         <p>
           فایل سفارش‌ها را بارگذاری کنید؛ داده اعتبارسنجی می‌شود، داده‌های گم‌شده از صفر واقعی
           جدا می‌شوند و پیش‌بینی روزانهٔ کل کسب‌وکار با بازهٔ اطمینان تولید می‌شود.
+        </p>
+      </section>
+
+      <section class="guide" id="guide">
+        <h3>از کجا شروع کنم؟</h3>
+        <ol class="guide-steps">
+          <li>فایل اکسل سفارش‌ها را در بخش «داده ورودی» بارگذاری کنید.</li>
+          <li>«بررسی کیفیت داده» را بزنید و گزارش تست‌به‌تست را تأیید کنید.</li>
+          <li>«اجرای پیش‌بینی» را بزنید؛ نتیجهٔ روزانه و اعتبار بک‌تست همین‌جا می‌آید.</li>
+        </ol>
+        <p class="muted">
+          برای دیدن وضعیت ماه‌های گذشته و سه سناریوی ماه آینده به
+          <a href="/comparison">داشبورد مقایسه‌ای</a> بروید.
         </p>
       </section>
 
@@ -166,6 +129,11 @@
 
       <section id="results" hidden>
         <div class="kpi-grid" id="kpis"></div>
+
+        <p class="next-step">
+          این پیش‌بینی روزانه است. برای مقایسهٔ ماه‌های گذشته و سه سناریوی ماه آینده
+          <a href="/comparison">داشبورد مقایسه‌ای</a> را ببینید.
+        </p>
 
         <div class="card">
           <div class="card-head">

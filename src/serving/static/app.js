@@ -267,6 +267,7 @@
       }
       render(payload);
       results.hidden = false;
+      if (guide) guide.hidden = true;
       results.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (error) {
       showError(error.message || "خطای نامشخص در پردازش فایل.");
@@ -592,4 +593,35 @@
       list.innerHTML = '<li class="empty">برگه‌ای خوانده نشد.</li>';
     }
   }
+
+  /* ---------- cross-page state ---------- */
+  const guide = document.getElementById("guide");
+  const lastRunBox = document.getElementById("last-run");
+
+  function renderLastRun(entry) {
+    if (!entry || !lastRunBox) return;
+    const parts = [];
+    if (entry.file) parts.push("فایل <strong>" + entry.file + "</strong>");
+    if (entry.origin) parts.push("مبدأ " + entry.origin);
+    if (entry.target) parts.push("تا " + entry.target);
+    if (entry.horizon) parts.push("افق " + fa.format(entry.horizon) + " روز");
+    if (entry.model) parts.push("مدل " + entry.model);
+    if (entry.at) parts.push(entry.at.replace("T", " "));
+    if (!parts.length) return;
+    lastRunBox.innerHTML = "آخرین اجرا: " + parts.join(" · ");
+    lastRunBox.hidden = false;
+  }
+
+  async function loadStatus() {
+    try {
+      const response = await fetch("/api/status", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      renderLastRun(data.last_run);
+    } catch (err) {
+      /* the strip is a convenience; never block the page on it */
+    }
+  }
+
+  loadStatus();
 })();

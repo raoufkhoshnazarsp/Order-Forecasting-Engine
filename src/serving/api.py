@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from src.serving.delivery import (
 )
 from src.serving.comparison import ComparisonError, build_comparison
 from src.serving.quality import QualityGateError, check_workbook, require_quality
+from src.serving.state import last_run, record_run
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -39,8 +41,23 @@ ALLOWED_SUFFIXES = {".xlsx", ".xlsm", ".xls"}
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
-def _render(name: str, **context) -> HTMLResponse:
+INCLUDE_RE = re.compile(r"\{\{>\s*([A-Za-z0-9_.-]+)\s*\}\}")
+CURRENT = ' aria-current="page"'
+
+
+def _load(name: str, depth: int = 0) -> str:
+    """Read a template and expand ``{{> partial}}`` includes."""
+    if depth > 5:
+        raise RuntimeError(f"template include too deep at {name}")
     page = (TEMPLATE_DIR / name).read_text(encoding="utf-8")
+    return INCLUDE_RE.sub(lambda m: _load(m.group(1), depth + 1), page)
+
+
+def _render(name: str, **context) -> HTMLResponse:
+    page = _load(name)
+    context.setdefault("year", datetime.now().year)
+    context.setdefault("cur_home", "")
+    context.setdefault("cur_comparison", "")
     for key, value in context.items():
         page = page.replace("{{" + key + "}}", str(value))
     return HTMLResponse(page)
@@ -48,12 +65,26 @@ def _render(name: str, **context) -> HTMLResponse:
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
-    return _render("index.html", year=datetime.now().year)
+    return _render(
+        "index.html",
+        cur_home=CURRENT,
+        side_foot="پردازش کاملاً محلی روی فایل اکسل<br />بدون اتصال به دیتابیس",
+    )
 
 
 @app.get("/comparison", response_class=HTMLResponse)
 def comparison_page() -> HTMLResponse:
-    return _render("comparison.html", year=datetime.now().year)
+    return _render(
+        "comparison.html",
+        cur_comparison=CURRENT,
+        side_foot="گذشته از دادهٔ واقعی<br />آینده از خطای بک‌تست",
+    )
+
+
+@app.get("/api/status")
+def status() -> dict:
+    """What the other page last computed, so the pages agree with each other."""
+    return {"last_run": last_run()}
 
 
 @app.get("/healthz")
@@ -87,6 +118,14 @@ async def _save_upload(file: UploadFile) -> Path:
     saved = ARTIFACTS / f"{stamp}_{Path(file.filename or 'upload.xlsx').name}"
     saved.write_bytes(payload)
     return saved
+
+
+STAMP_RE = re.compile(r"^\d{8}_\d{6}_")
+
+
+def _display_name(saved: Path) -> str:
+    """Undo the timestamp prefix so the UI shows the name the user uploaded."""
+    return STAMP_RE.sub("", saved.name)
 
 
 def _requested_horizon(raw: str | int | None) -> int | None:
@@ -148,6 +187,17 @@ async def forecast(
     summary["window"] = report.window
     summary["chart"] = _chart_payload(result)
     summary["entities_table"] = _entity_table(result)
+    summary["last_run"] = record_run(
+        "forecast",
+        {
+            "file": _display_name(saved),
+            "origin": report.origin.isoformat() if report.origin else None,
+            "target": plan.get("target"),
+            "horizon": horizon,
+            "model": summary.get("model"),
+            "rows": len(summary.get("entities_table") or []),
+        },
+    )
     return JSONResponse(summary)
 
 
@@ -300,6 +350,17 @@ async def delivery(
     buffer.seek(0)
 
     filename = f"forecast-{horizon}d-{result.origin.isoformat()}.xlsx"
+    record_run(
+        "delivery",
+        {
+            "file": _display_name(saved),
+            "origin": result.origin.isoformat(),
+            "target": (report.plan or {}).get("target"),
+            "horizon": horizon,
+            "model": result.model,
+            "rows": len(result.frame),
+        },
+    )
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
         "X-Forecast-Model": result.model,
@@ -352,6 +413,17 @@ async def comparison(
     payload = result.as_dict()
     payload["horizon_plan"] = plan
     payload["window"] = report.window
+    payload["last_run"] = record_run(
+        "comparison",
+        {
+            "file": _display_name(saved),
+            "origin": origin.isoformat() if origin else None,
+            "target": plan.get("target"),
+            "horizon": horizon_days,
+            "model": result.model,
+            "next_month": result.next_month,
+        },
+    )
     return JSONResponse(payload)
 
 

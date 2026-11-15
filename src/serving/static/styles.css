@@ -107,6 +107,11 @@ a:hover { text-decoration: underline; }
   border-inline-start-color: var(--brand);
 }
 .side-nav a svg { width: 17px; height: 17px; flex: 0 0 auto; color: var(--green); }
+.side-nav a[aria-current="page"] {
+  background: var(--surface-3); color: var(--text);
+  border-inline-start-color: var(--green);
+}
+.side-nav a[aria-current="page"] svg { color: var(--green); }
 
 .side-foot {
   margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--border);
@@ -139,6 +144,36 @@ main {
 }
 
 .hero p { color: var(--text-muted); max-width: 70ch; margin-top: .45rem; font-size: .9rem; }
+
+/* ---------- cross-page guidance ---------- */
+.guide {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--brand);
+  border-radius: var(--radius);
+  padding: var(--sp-4) var(--sp-5);
+  display: grid; gap: var(--sp-2);
+}
+.guide h3 { font-size: .95rem; }
+.guide-steps { margin: 0; padding-inline-start: 1.2rem; color: var(--text-soft); font-size: .85rem; }
+.guide-steps li { margin-bottom: var(--sp-1); }
+.guide .muted { font-size: .82rem; }
+
+.run-strip {
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+  background: var(--brand-soft); border: 1px solid rgba(104, 112, 250, .35);
+  color: var(--text-soft); border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-4); font-size: .8rem;
+}
+.run-strip strong { color: #a9aeff; font-weight: 700; }
+.run-strip a { font-weight: 700; }
+
+.next-step {
+  background: var(--green-soft); border: 1px solid rgba(76, 206, 172, .3);
+  border-radius: var(--radius-sm); padding: var(--sp-3) var(--sp-4);
+  font-size: .84rem; color: var(--text-soft);
+}
+.next-step a { font-weight: 700; }
 
 .card {
   background: var(--surface);
