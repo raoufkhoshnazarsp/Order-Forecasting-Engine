@@ -391,11 +391,21 @@ docker run -p 8000:8000 ghcr.io/raoufkhoshnazarsp/order-forecasting-engine:lates
 
 ## 🌐 استقرار و دموی آنلاین
 
-| مقصد | چه چیزی | چطور |
+| مقصد | چه چیزی | آدرس |
 | --- | --- | --- |
-| **GitHub Pages** | دموی استاتیک گزارش — [مشاهده](https://raoufkhoshnazarsp.github.io/Order-Forecasting-Engine/) | workflow `pages.yml` |
-| **GHCR** | ایمیج Docker اپلیکیشن | workflow `ci.yml` |
-| **سرور خودتان** | اپلیکیشن زنده با آپلود فایل | `docker compose up` |
+| **سرور پروژه** | اپلیکیشن زنده با آپلود فایل | https://46.34.163.254:8443/ |
+| **سرور پروژه** | گزارش استاتیک | https://46.34.163.254:8443/report/ |
+| **GitHub Pages** | دموی استاتیک گزارش | https://raoufkhoshnazarsp.github.io/Order-Forecasting-Engine/ |
+| **GHCR** | ایمیج Docker اپلیکیشن | `ghcr.io/raoufkhoshnazarsp/order-forecasting-engine` |
+
+### استقرار روی سرور
+
+```bash
+./scripts/deploy.sh            # pull main، rebuild، restart، بازسازی گزارش
+./scripts/deploy.sh --no-pull  # فقط rebuild همان checkout
+```
+
+روی سرور، اپ روی `127.0.0.1:8000` و گزارش روی `127.0.0.1:8001` گوش می‌دهند و فقط nginx روی پورت `8443` بیرون را سرو می‌کند. سایت Moodle روی ۸۰/۴۴۳ کاملاً جدا و دست‌نخورده است.
 
 **چرا اپلیکیشن روی Pages اجرا نمی‌شود؟** Pages فقط فایل استاتیک سرو می‌کند (HTML/CSS/JS) و هیچ فرایند پایتونی اجرا نمی‌کند. این پروژه یک سرور FastAPI است که فایل اکسل را در سمت سرور پردازش می‌کند، پس روی Pages قابل میزبانی نیست.
 
