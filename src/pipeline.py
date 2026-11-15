@@ -22,8 +22,8 @@ from src.evaluation.backtest import (
     backtest,
     backtest_global,
     horizon_accuracy,
-    summarize,
 )
+from src.evaluation.metrics import bias, wape
 from src.evaluation.report import build_backtest_report
 from src.ingestion.excel import ExcelLoadResult, load_workbook
 from src.models.baselines import BASELINES, moving_average
@@ -315,10 +315,20 @@ def run_pipeline(
             global_bt = pd.DataFrame()
             warnings.append(f"Global model backtest skipped: {exc}")
         if not bt.empty:
-            scorecard = summarize(bt)
+            # Rank on the pooled WAPE, not the mean of per-entity WAPEs: a
+            # simple average lets a small entity with a bad ratio outvote the
+            # business total, which is the number the user actually forecasts.
             overall = (
-                scorecard.groupby("model_name")[["wape", "bias"]]
-                .mean()
+                bt.groupby("model_name")
+                .apply(
+                    lambda c: pd.Series(
+                        {
+                            "wape": wape(c["actual"], c["yhat"]),
+                            "bias": bias(c["actual"], c["yhat"]),
+                        }
+                    ),
+                    include_groups=False,
+                )
                 .sort_values("wape")
             )
             ranking = [

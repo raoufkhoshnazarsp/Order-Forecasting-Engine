@@ -180,3 +180,44 @@ def test_aov_series_ignores_zero_order_days():
     series = aov_series(mart, "A")
     assert len(series) == 1
     assert series.iloc[0] == 100.0
+
+
+def test_auto_selection_ranks_on_pooled_wape_not_a_mean_of_ratios(tmp_path):
+    """A tiny entity with a bad ratio must not outvote the business total.
+
+    The ranking used to average per-entity WAPEs, so a small vertical could
+    decide the winner. Pooled WAPE weights every order equally, which is the
+    number the user actually forecasts.
+    """
+    rows = []
+    start = date(2026, 1, 1)
+    for i in range(150):
+        day = (start + timedelta(days=i)).isoformat()
+        weekday = (start + timedelta(days=i)).weekday()
+        big = 1000 * (1.4 if weekday == 4 else 1.0)
+        small = 5 * (1.0 + 0.5 * np.sin(i))
+        rows.append(
+            {
+                "date": day,
+                "vertical": "FASHION",
+                "successful_orders": int(big),
+                "GMV": int(big) * 500_000,
+            }
+        )
+        rows.append(
+            {
+                "date": day,
+                "vertical": "GOLD",
+                "successful_orders": int(small),
+                "GMV": int(small) * 2_000_000,
+            }
+        )
+    path = write_workbook(tmp_path / "model.xlsx", {"Sheet1": pd.DataFrame(rows)})
+
+    result = run_pipeline(
+        path, horizon=14, model="auto", backtest_step=14, min_train_days=60
+    )
+    assert result.backtest_ranking
+    wapes = [row["wape"] for row in result.backtest_ranking]
+    assert wapes == sorted(wapes)
+    assert result.model == result.backtest_ranking[0]["model"]
