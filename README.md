@@ -6,6 +6,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688?logo=fastapi&logoColor=white)](#)
 [![Tests](https://img.shields.io/badge/tests-108%20passing-2ea44f)](#-تستها)
 [![CI](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/ci.yml)
+[![Pages](https://github.com/raoufkhoshnazarsp/Order-Forecasting-Engine/actions/workflows/pages.yml/badge.svg)](https://raoufkhoshnazarsp.github.io/Order-Forecasting-Engine/)
 [![License](https://img.shields.io/badge/license-proprietary-6b7280)](#)
 
 > **بدون اتصال مستقیم به دیتابیس.** ورودی موتور فقط فایل اکسل است. این تصمیم معماری، نه یک محدودیت موقت: هر اجرا روی یک snapshot قابل بازتولید از فایل انجام می‌شود، بنابراین نتایج قابل ممیزی و مستقل از دسترسی به DWH است.
@@ -392,7 +393,7 @@ docker run -p 8000:8000 ghcr.io/raoufkhoshnazarsp/order-forecasting-engine:lates
 
 | مقصد | چه چیزی | چطور |
 | --- | --- | --- |
-| **GitHub Pages** | دموی استاتیک گزارش | workflow `pages.yml` |
+| **GitHub Pages** | دموی استاتیک گزارش — [مشاهده](https://raoufkhoshnazarsp.github.io/Order-Forecasting-Engine/) | workflow `pages.yml` |
 | **GHCR** | ایمیج Docker اپلیکیشن | workflow `ci.yml` |
 | **سرور خودتان** | اپلیکیشن زنده با آپلود فایل | `docker compose up` |
 
