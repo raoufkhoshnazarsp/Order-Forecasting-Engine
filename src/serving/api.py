@@ -18,7 +18,12 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 
 from src import config
-from src.ingestion.excel import ExcelInputError, load_category_facts, template_bytes
+from src.ingestion.excel import (
+    ExcelInputError,
+    load_category_facts,
+    load_workbook,
+    template_bytes,
+)
 from src.pipeline import PipelineError, run_pipeline
 from src.serving.delivery import (
     DeliveryError,
@@ -26,9 +31,12 @@ from src.serving.delivery import (
     validate_delivery,
 )
 from src.serving.comparison import ComparisonError, build_comparison
+from src.serving.preview import build_preview
 from src.serving.quality import QualityGateError, check_workbook, require_quality
+from src.serving.sensitivity import SensitivityError, apply_sensitivity
 from src.monitoring.health import health_report, job_health, render_prometheus
 from src.monitoring.registry import current_version, history as registry_history
+from src.serving import runs as session
 from src.serving.state import last_run, record_run
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -60,6 +68,11 @@ def _render(name: str, **context) -> HTMLResponse:
     context.setdefault("year", datetime.now().year)
     context.setdefault("cur_home", "")
     context.setdefault("cur_comparison", "")
+    context.setdefault("cur_help", "")
+    # {{cur_*}} carries the class, {{*_current}} carries the accessible marker;
+    # they are separate so a page can highlight one link and mark another.
+    context.setdefault("home_current", "")
+    context.setdefault("comparison_current", "")
     for key, value in context.items():
         page = page.replace("{{" + key + "}}", str(value))
     return HTMLResponse(page)
@@ -78,9 +91,15 @@ def index() -> HTMLResponse:
 def comparison_page() -> HTMLResponse:
     return _render(
         "comparison.html",
-        cur_comparison=CURRENT,
+        comparison_current=CURRENT,
         side_foot="گذشته از دادهٔ واقعی<br />آینده از خطای بک‌تست",
     )
+
+
+@app.get("/help", response_class=HTMLResponse)
+def help_page() -> HTMLResponse:
+    """Static report and the API reference used to sit in the main menu."""
+    return _render("help.html", cur_help=CURRENT)
 
 
 @app.get("/api/status")
@@ -216,7 +235,19 @@ async def quality(
     """Pre-flight gate: report every data check before anything is computed."""
     saved = await _save_upload(file)
     report = check_workbook(saved, horizon=_requested_horizon(horizon))
-    return JSONResponse(report.as_dict())
+    payload = report.as_dict()
+    payload["preview"] = _preview_of(saved, report)
+    return JSONResponse(payload)
+
+
+def _preview_of(saved: Path, report) -> dict:
+    """Describe what was read; a preview failure must not hide the gate."""
+    try:
+        loaded = load_workbook(saved)
+        sheets = [r.as_dict() for r in loaded.reports]
+        return build_preview(loaded.facts, sheets)
+    except Exception:  # noqa: BLE001 - preview is context, never a blocker
+        return build_preview(None, [])
 
 
 @app.post("/api/forecast")
@@ -268,74 +299,507 @@ async def forecast(
     return JSONResponse(summary)
 
 
-def _chart_payload(result) -> dict:
-    assert result.mart is not None and result.forecast is not None
-    total_id = "TOTAL"
-    mart = result.mart
-    history = mart[
-        (mart["entity_id"] == total_id) & mart["successful_orders"].notna()
-    ].sort_values("date").tail(90)
-    forecast = result.forecast[
-        (result.forecast["entity_id"] == total_id)
-        & (result.forecast["reconciled_yhat"].notna())
-    ].sort_values("horizon")
-    payload = {
-        "history": {
-            "labels": [pd_date(d) for d in history["date"]],
-            "values": [float(v) for v in history["successful_orders"]],
-        },
-        "forecast": {
-            "labels": [pd_date(d) for d in forecast["target_date"]],
-            "values": [round(float(v), 1) for v in forecast["reconciled_yhat"]],
-            "lower": [round(float(v), 1) for v in forecast["lower_90"]],
-            "upper": [round(float(v), 1) for v in forecast["upper_90"]],
-        },
+# ---------------------------------------------------------------------------
+# Run sessions: one upload, read once, reused by every step of the flow.
+# ---------------------------------------------------------------------------
+
+
+def _run_or_404(run_id: str) -> dict:
+    try:
+        return session.load(run_id)
+    except session.RunError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _quality_payload(report) -> dict:
+    return report.as_dict()
+
+
+def _backtest_summary(summary: dict) -> dict:
+    """The step-4 view: why this model, what it scored, and how it was tested."""
+    report = summary.get("backtest_report") or {}
+    ranking = summary.get("backtest_ranking") or []
+    models = report.get("models") or ranking
+    winner = models[0] if models else None
+    chosen = summary.get("model")
+    chosen_row = next(
+        (row for row in models if row.get("model") == chosen), winner
+    ) if models else None
+    return {
+        "model": chosen,
+        "chosen": chosen_row,
+        "models": models,
+        "windows": report.get("windows"),
+        "points": report.get("points"),
+        "test_start": report.get("test_start"),
+        "test_end": report.get("test_end"),
+        "horizon": report.get("horizon"),
+        "note": report.get("note"),
+        "reconciliation": report.get("reconciliation") or [],
+        "ranking": ranking,
     }
 
-    if result.gmv_forecast is not None and "gmv" in mart.columns:
-        gmv_history = history[history["gmv"].notna()]
-        gmv_fc = result.gmv_forecast[
-            result.gmv_forecast["entity_id"] == total_id
-        ].sort_values("horizon")
-        payload["gmv"] = {
-            "history": {
-                "labels": [pd_date(d) for d in gmv_history["date"]],
-                "values": [float(v) for v in gmv_history["gmv"]],
+
+@app.post("/api/runs")
+async def create_run(
+    file: UploadFile = File(...),
+    horizon: str = Form("auto"),
+) -> JSONResponse:
+    """Step 1+2: save the workbook, read it once, run the gate, preview it."""
+    saved = await _save_upload(file)
+    report = check_workbook(saved, horizon=_requested_horizon(horizon))
+    payload = _quality_payload(report)
+    preview = _preview_of(saved, report)
+    plan = report.plan or {}
+
+    try:
+        record = session.create(
+            saved,
+            file_name=_display_name(saved),
+            origin=report.origin.isoformat() if report.origin else None,
+            target=plan.get("target"),
+            horizon=plan.get("horizon"),
+            quality=payload,
+            preview=preview,
+        )
+    except OSError as exc:
+        raise HTTPException(
+            status_code=507, detail=f"ذخیرهٔ نشست اجرا ممکن نشد: {exc}"
+        ) from exc
+
+    steps = dict(record["steps"])
+    steps["data"] = True
+    steps["quality"] = not report.blocked
+    session.update(record["run_id"], steps=steps)
+
+    payload["run"] = {
+        "run_id": record["run_id"],
+        "file": record["file"],
+        "created_at": record["created_at"],
+        "steps": steps,
+    }
+    payload["preview"] = preview
+    return JSONResponse(payload)
+
+
+@app.post("/api/runs/{run_id}/forecast")
+def run_forecast(
+    run_id: str,
+    quality_token: str = Form(""),
+    model: str = Form("auto"),
+    horizon: str = Form("auto"),
+) -> JSONResponse:
+    """Step 3+4+5: forecast from the stored workbook after the token matches."""
+    record = _run_or_404(run_id)
+    try:
+        saved = session.workbook_path(record)
+    except session.RunError as exc:
+        raise HTTPException(status_code=410, detail=str(exc)) from exc
+
+    requested = _requested_horizon(horizon)
+    try:
+        report = require_quality(saved, quality_token, horizon=requested)
+    except QualityGateError as exc:
+        raise HTTPException(status_code=428, detail=str(exc)) from exc
+
+    plan = report.plan or {}
+    effective = int(plan.get("horizon") or 30)
+    try:
+        result = run_pipeline(saved, horizon=effective, model=model)
+    except (ExcelInputError, PipelineError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500, detail=f"پردازش فایل با خطا مواجه شد: {exc}"
+        ) from exc
+
+    summary = result.summary()
+    summary["horizon_plan"] = plan
+    summary["window"] = report.window
+    summary["chart"] = _chart_payload(result)
+    summary["entities_table"] = _entity_table(result)
+    summary["backtest_view"] = _backtest_summary(summary)
+    summary["run_id"] = run_id
+
+    session.save_view(run_id, "forecast", summary)
+    # The sensitivity step works on the full forecast grain, so it is stored
+    # as rows next to the compact UI payload instead of being rebuilt later.
+    session.save_view(run_id, "forecast_rows", _forecast_rows(result))
+    record = session.update(
+        run_id,
+        origin=report.origin.isoformat() if report.origin else record.get("origin"),
+        target=plan.get("target"),
+        horizon=effective,
+        model=summary.get("model"),
+    )
+    steps = dict(record.get("steps") or {})
+    steps.update({"forecast": True, "backtest": bool(summary.get("backtest_report"))})
+    session.update(run_id, steps=steps)
+    summary["last_run"] = record_run(
+        "forecast",
+        {
+            "file": record.get("file"),
+            "origin": record.get("origin"),
+            "target": record.get("target"),
+            "horizon": effective,
+            "model": summary.get("model"),
+            "rows": len(summary.get("entities_table") or []),
+        },
+    )
+    return JSONResponse(summary)
+
+
+@app.post("/api/runs/{run_id}/comparison")
+def run_comparison(
+    run_id: str,
+    months: int = Form(6),
+    quality_token: str = Form(""),
+) -> JSONResponse:
+    """Step 7: the monthly dashboard, from the same workbook as the forecast."""
+    record = _run_or_404(run_id)
+    try:
+        saved = session.workbook_path(record)
+    except session.RunError as exc:
+        raise HTTPException(status_code=410, detail=str(exc)) from exc
+
+    try:
+        report = require_quality(saved, quality_token)
+    except QualityGateError as exc:
+        raise HTTPException(status_code=428, detail=str(exc)) from exc
+
+    plan = report.plan or {}
+    horizon_days = int(plan.get("horizon") or 30)
+    model = record.get("model") or "auto"
+    try:
+        result = build_comparison(
+            report.facts,
+            origin=report.origin,
+            horizon=horizon_days,
+            months=max(1, min(int(months or 6), 12)),
+            model=model,
+        )
+    except ComparisonError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500, detail=f"ساخت داشبورد مقایسه‌ای با خطا مواجه شد: {exc}"
+        ) from exc
+
+    payload = result.as_dict()
+    payload["horizon_plan"] = plan
+    payload["window"] = report.window
+    payload["run_id"] = run_id
+    session.save_view(run_id, "comparison", payload)
+    session.mark(run_id, "monthly")
+    last = record_run(
+        "comparison",
+        {
+            "file": record.get("file"),
+            "origin": record.get("origin"),
+            "target": plan.get("target"),
+            "horizon": horizon_days,
+            "model": result.model,
+            "next_month": result.next_month,
+        },
+    )
+    payload["last_run"] = last
+    return JSONResponse(payload)
+
+
+@app.post("/api/runs/{run_id}/sensitivity")
+def run_sensitivity(
+    run_id: str,
+    entity_id: str = Form(...),
+    delta_pct: float = Form(0.0),
+) -> JSONResponse:
+    """Step 7: one adjustable assumption on top of the saved base forecast."""
+    _run_or_404(run_id)
+    rows = session.load_view(run_id, "forecast_rows")
+    if not rows:
+        raise HTTPException(
+            status_code=409, detail="ابتدا پیش‌بینی را اجرا کنید تا سناریوی حساسیت ساخته شود."
+        )
+
+    source = pd.DataFrame(rows.get("orders") or [])
+    gmv_frame = pd.DataFrame(rows.get("gmv") or [])
+    try:
+        result = apply_sensitivity(
+            source,
+            entity_id=entity_id,
+            delta_pct=delta_pct,
+            gmv_forecast=gmv_frame if not gmv_frame.empty else None,
+        )
+    except SensitivityError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    payload = result.as_dict()
+    session.save_view(run_id, "sensitivity", payload)
+    session.mark(run_id, "sensitivity")
+    return JSONResponse(payload)
+
+
+@app.get("/api/runs/{run_id}")
+def get_run(run_id: str) -> JSONResponse:
+    """Restore a session after a refresh: every step that has been computed."""
+    record = _run_or_404(run_id)
+    return JSONResponse(session.session_payload(record))
+
+
+@app.get("/api/runs")
+def get_runs(limit: int = 12) -> JSONResponse:
+    return JSONResponse({"runs": session.list_runs(limit=max(1, min(int(limit), 50)))})
+
+
+def _forecast_rows(result) -> dict:
+    """The full forecast grain, so later steps never need the workbook again."""
+    orders = []
+    for row in result.forecast.itertuples(index=False):
+        orders.append(
+            {
+                "forecast_origin": str(row.forecast_origin),
+                "target_date": pd_date(row.target_date),
+                "entity_id": str(row.entity_id),
+                "entity_type": str(row.entity_type),
+                "horizon": int(row.horizon),
+                "yhat": float(row.yhat),
+                "reconciled_yhat": float(row.reconciled_yhat),
+                "lower_80": float(row.lower_80),
+                "upper_80": float(row.upper_80),
+                "lower_90": float(row.lower_90),
+                "upper_90": float(row.upper_90),
+                "model_version": str(row.model_version),
+            }
+        )
+    gmv = []
+    if result.gmv_forecast is not None and not result.gmv_forecast.empty:
+        for row in result.gmv_forecast.itertuples(index=False):
+            gmv.append(
+                {
+                    "target_date": pd_date(row.target_date),
+                    "entity_id": str(row.entity_id),
+                    "entity_type": str(row.entity_type),
+                    "horizon": int(row.horizon),
+                    "gmv_yhat": float(row.gmv_yhat),
+                }
+            )
+    return {"orders": orders, "gmv": gmv}
+
+
+def _delivery_bytes(frame: pd.DataFrame) -> bytes:
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        out = frame.copy()
+        out["date"] = pd.to_datetime(out["date"])
+        out.to_excel(writer, sheet_name="Sheet1", index=False)
+        sheet = writer.sheets["Sheet1"]
+        for cell in sheet["A"][1:]:
+            cell.number_format = "yyyy-mm-dd"
+        for column, width in zip("ABCDEF", (12, 10, 16, 30, 16, 20)):
+            sheet.column_dimensions[column].width = width
+    return buffer.getvalue()
+
+
+@app.get("/api/runs/{run_id}/package")
+def download_package(run_id: str) -> Response:
+    """The delivery workbook of a run, built on first request and then cached."""
+    record = _run_or_404(run_id)
+    try:
+        path = session.package_path(run_id)
+    except session.RunError:
+        path = None
+
+    if path is None:
+        try:
+            saved = session.workbook_path(record)
+        except session.RunError as exc:
+            raise HTTPException(status_code=410, detail=str(exc)) from exc
+        horizon = int(record.get("horizon") or 30)
+        model = record.get("model") or "auto"
+        try:
+            facts = load_category_facts(saved)
+            built = build_delivery_frame(
+                facts,
+                origin=max(facts["date"]).date(),
+                horizon=horizon,
+                model=model,
+            )
+            validate_delivery(built.frame)
+        except (ExcelInputError, DeliveryError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=500, detail=f"ساخت بستهٔ تحویل با خطا مواجه شد: {exc}"
+            ) from exc
+        path = session.save_package(run_id, _delivery_bytes(built.frame))
+        session.update(
+            run_id,
+            package={
+                "rows": int(len(built.frame)),
+                "categories": int(built.categories),
+                "days": int(built.horizon),
+                "origin": built.origin.isoformat(),
+                "target": record.get("target"),
+                "sample": built.frame.head(5).astype(str).to_dict("records"),
             },
-            "forecast": {
-                "labels": [pd_date(d) for d in gmv_fc["target_date"]],
-                "values": [round(float(v), 1) for v in gmv_fc["gmv_yhat"]],
-                "lower": [round(float(v), 1) for v in gmv_fc["gmv_lower_90"]],
-                "upper": [round(float(v), 1) for v in gmv_fc["gmv_upper_90"]],
-            },
+        )
+        session.mark(run_id, "package")
+        record = session.load(run_id)
+
+    info = record.get("package") or {}
+    filename = f"forecast-{record.get('horizon') or 30}d-{record.get('origin') or 'run'}.xlsx"
+    return Response(
+        path.read_bytes(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Forecast-Rows": str(info.get("rows") or ""),
+        },
+    )
+
+
+@app.get("/api/runs/{run_id}/package/preview")
+def package_preview(run_id: str) -> JSONResponse:
+    """What the delivery file will contain, before the user downloads it."""
+    record = _run_or_404(run_id)
+    info = record.get("package")
+    if not info:
+        return JSONResponse({"ready": False})
+    return JSONResponse({"ready": True, **info})
+
+
+def _entity_series(frame: pd.DataFrame, column: str) -> dict[str, pd.Series]:
+    if frame is None or frame.empty or column not in frame.columns:
+        return {}
+    out: dict[str, pd.Series] = {}
+    for entity_id, chunk in frame.groupby("entity_id"):
+        series = chunk.sort_values("horizon").set_index("horizon")[column]
+        out[str(entity_id)] = series.astype("float64")
+    return out
+
+
+def _chart_payload(result) -> dict:
+    """Actual history and forecast for every entity, not just the total.
+
+    The UI lets the analyst switch entity without another round trip, so the
+    payload carries the same three metrics per entity. The total is always
+    ``entities["TOTAL"]`` and is also mirrored at the top level for older
+    callers.
+    """
+    assert result.mart is not None and result.forecast is not None
+    mart = result.mart
+    horizon = int(result.horizon)
+    has_gmv = (
+        result.gmv_forecast is not None
+        and not result.gmv_forecast.empty
+        and "gmv" in mart.columns
+    )
+
+    history = mart[mart["successful_orders"].notna()].sort_values("date")
+    history = history.groupby("entity_id", group_keys=False).tail(90)
+    hist_dates: dict[str, list] = {}
+    hist_orders: dict[str, list] = {}
+    hist_gmv: dict[str, list] = {}
+    hist_aov: dict[str, list] = {}
+    for entity_id, chunk in history.groupby("entity_id"):
+        chunk = chunk.sort_values("date")
+        key = str(entity_id)
+        hist_dates[key] = [pd_date(d) for d in chunk["date"]]
+        hist_orders[key] = [float(v) for v in chunk["successful_orders"]]
+        if has_gmv:
+            gmv = chunk["gmv"].astype("float64")
+            orders = chunk["successful_orders"].astype("float64")
+            hist_gmv[key] = [None if pd.isna(v) else float(v) for v in gmv]
+            hist_aov[key] = [
+                float(g) / float(o) if o and not pd.isna(g) else None
+                for g, o in zip(gmv, orders)
+            ]
+
+    fc_dates = {
+        str(k): [pd_date(d) for d in c.sort_values("horizon")["target_date"]]
+        for k, c in result.forecast.groupby("entity_id")
+    }
+    fc_orders = _entity_series(result.forecast, "reconciled_yhat")
+    fc_low = _entity_series(result.forecast, "lower_90")
+    fc_high = _entity_series(result.forecast, "upper_90")
+    fc_gmv = _entity_series(result.gmv_forecast, "gmv_yhat")
+    fc_gmv_low = _entity_series(result.gmv_forecast, "gmv_lower_90")
+    fc_gmv_high = _entity_series(result.gmv_forecast, "gmv_upper_90")
+    fc_aov = _entity_series(result.gmv_forecast, "aov_yhat")
+
+    def values(series: dict[str, pd.Series], key: str) -> list:
+        frame = series.get(key)
+        return [] if frame is None else frame.round(1).tolist()
+
+    entities: dict[str, dict] = {}
+    for entity_id in fc_orders:
+        entry = {
+            "orders": {
+                "history": {
+                    "labels": hist_dates.get(entity_id, []),
+                    "values": hist_orders.get(entity_id, []),
+                },
+                "forecast": {
+                    "labels": fc_dates.get(entity_id, []),
+                    "values": values(fc_orders, entity_id),
+                    "lower": values(fc_low, entity_id),
+                    "upper": values(fc_high, entity_id),
+                },
+            }
         }
-        aov_history = gmv_history[gmv_history["successful_orders"] > 0]
-        payload["aov"] = {
-            "history": {
-                "labels": [pd_date(d) for d in aov_history["date"]],
-                "values": [
-                    float(g) / float(o)
-                    for g, o in zip(aov_history["gmv"], aov_history["successful_orders"])
-                ],
-            },
-            "forecast": {
-                "labels": [pd_date(d) for d in gmv_fc["target_date"]],
-                "values": [round(float(v), 1) for v in gmv_fc["aov_yhat"]],
-            },
-        }
+        if entity_id in fc_gmv:
+            entry["gmv"] = {
+                "history": {
+                    "labels": hist_dates.get(entity_id, []),
+                    "values": hist_gmv.get(entity_id, []),
+                },
+                "forecast": {
+                    "labels": fc_dates.get(entity_id, []),
+                    "values": values(fc_gmv, entity_id),
+                    "lower": values(fc_gmv_low, entity_id),
+                    "upper": values(fc_gmv_high, entity_id),
+                },
+            }
+            entry["aov"] = {
+                "history": {
+                    "labels": hist_dates.get(entity_id, []),
+                    "values": hist_aov.get(entity_id, []),
+                },
+                "forecast": {
+                    "labels": fc_dates.get(entity_id, []),
+                    "values": values(fc_aov, entity_id),
+                },
+            }
+        entities[entity_id] = entry
+
+    payload = {"horizon": horizon, "entities": entities}
+    total = entities.get("TOTAL")
+    if total:
+        # Backwards-compatible top level: the total series only.
+        payload.update(total)
     return payload
 
 
 def _entity_table(result) -> list[dict]:
+    """One row per entity, with columns derived from the actual horizon.
+
+    The old table hard-coded D+1 / D+7 / last-day / 30-day total, which
+    silently lied for 7, 14 or 60-day runs. Columns now follow the horizon.
+    """
     assert result.forecast is not None
+    horizon = int(result.horizon)
+    day_points = sorted({1, min(7, horizon), horizon})
+
     gmv_by_entity: dict[str, dict] = {}
     if result.gmv_forecast is not None:
         for entity_id, chunk in result.gmv_forecast.groupby("entity_id"):
             chunk = chunk.sort_values("horizon")
+            by_h = chunk.set_index("horizon")
             gmv_by_entity[str(entity_id)] = {
-                "gmv_d1": _round(chunk["gmv_yhat"].iloc[0]),
-                "gmv_total_30": _round(chunk["gmv_yhat"].sum()),
-                "aov_d1": _round(chunk["aov_yhat"].iloc[0]),
+                "gmv_points": {
+                    f"d{day}": _round(by_h["gmv_yhat"].get(day)) for day in day_points
+                },
+                "gmv_total": _round(by_h["gmv_yhat"].sum()),
+                "aov_d1": _round(by_h["aov_yhat"].get(1)),
             }
     rows = []
     for entity_id, chunk in result.forecast.groupby("entity_id"):
@@ -346,17 +810,24 @@ def _entity_table(result) -> list[dict]:
             {
                 "entity_id": entity_id,
                 "entity_type": str(chunk["entity_type"].iloc[0]),
+                "points": {f"d{day}": _round(by_h.get(day)) for day in day_points},
+                "total": _round(by_h.sum()),
+                "gmv_points": extra.get("gmv_points", {}),
+                "gmv_total": extra.get("gmv_total"),
+                "aov_d1": extra.get("aov_d1"),
+                # Legacy field names kept so older clients keep working.
                 "d1": _round(by_h.get(1)),
                 "d7": _round(by_h.get(7)),
-                "d30": _round(by_h.get(len(by_h))),
+                "d30": _round(by_h.get(horizon)),
                 "total_30": _round(by_h.sum()),
-                "gmv_d1": extra.get("gmv_d1"),
-                "gmv_total_30": extra.get("gmv_total_30"),
-                "aov_d1": extra.get("aov_d1"),
+                "gmv_d1": (extra.get("gmv_points") or {}).get("d1"),
+                "gmv_total_30": extra.get("gmv_total"),
             }
         )
-    return sorted(rows, key=lambda r: (r["entity_type"] != "TOTAL",
-                                       r["entity_type"], r["entity_id"]))
+    return sorted(
+        rows,
+        key=lambda r: (r["entity_type"] != "TOTAL", r["entity_type"], r["entity_id"]),
+    )
 
 
 def _round(value):

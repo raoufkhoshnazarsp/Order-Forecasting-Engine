@@ -3,193 +3,169 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>داشبورد مقایسه‌ای | BNPL</title>
+  <title>داشبورد ماهانه | BNPL</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
   <a class="skip-link" href="#main">پرش به محتوای اصلی</a>
 
-  {{> _sidebar.html}}
-
   <div class="shell">
-    <header class="topbar">
-      <div>
-        <h2>داشبورد مقایسه‌ای</h2>
-        <p class="sub">وضعیت ماه‌های گذشته و سه سناریوی ماه آینده، به تفکیک ورتیکال و کل</p>
-      </div>
-      <span class="pill" id="status-pill">در انتظار داده</span>
-    </header>
+    {{> _sidebar.html}}
 
-    <main id="main">
-      <p class="run-strip" id="last-run" hidden></p>
-
-      <section class="guide" id="guide">
-        <h3>این صفحه چه می‌کند؟</h3>
-        <ol class="guide-steps">
-          <li>فایل اکسل را بارگذاری کنید و «بررسی کیفیت داده» را بزنید.</li>
-          <li>گزارش تست‌به‌تست را تأیید کنید؛ بدون تأیید هیچ محاسبه‌ای اجرا نمی‌شود.</li>
-          <li>«ساخت داشبورد» را بزنید تا ماه‌های گذشته و سه سناریوی ماه آینده ساخته شود.</li>
-        </ol>
-        <p class="muted">
-          برای پیش‌بینی روزانه و اعتبار مدل‌ها به
-          <a href="/">صفحهٔ اجرای پیش‌بینی</a> بروید.
-        </p>
-      </section>
-
-      <section class="card">
-        <div class="card-head">
-          <h3>۱. داده ورودی</h3>
-          <div class="head-actions">
-            <a class="btn btn-ghost btn-sm" href="/api/sample">دانلود دادهٔ نمونه</a>
-          </div>
+    <div class="main-col">
+      <header class="topbar">
+        <div class="crumbs"><span>فضای کاری</span><span>/</span><strong>داشبورد ماهانه</strong></div>
+        <div class="top-actions">
+          <span class="pill pill-muted" id="status-pill">در انتظار داده</span>
+          <a class="btn btn-secondary btn-sm" href="/">بازگشت به جریان</a>
         </div>
+      </header>
 
-        <form id="comparison-form" class="upload-form" novalidate>
-          <div class="dropzone" id="dropzone" tabindex="0" role="button"
-               aria-label="انتخاب یا رهاکردن فایل اکسل">
-            <input type="file" id="file" name="file" accept=".xlsx,.xlsm,.xls" hidden />
-            <svg viewBox="0 0 24 24" aria-hidden="true" class="dropzone-icon">
-              <path d="M12 16V4m0 0L7 9m5-5 5 5" fill="none" stroke="currentColor"
-                    stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" fill="none"
-                    stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-            </svg>
-            <p class="dropzone-title">فایل اکسل را اینجا رها کنید یا کلیک کنید</p>
-            <p class="dropzone-hint">xlsx / xlsm / xls — حداکثر ۲۵ مگابایت</p>
-            <p class="dropzone-file" id="file-name" hidden></p>
+      <main id="main">
+        <p class="run-strip" id="last-run" hidden></p>
+        <p class="run-strip" id="session-strip" hidden></p>
+
+        <section class="hero" id="guide">
+          <h1>ماه‌های گذشته و سه سناریوی ماه آینده</h1>
+          <p>
+            گذشته از دادهٔ واقعی شما، آینده از انحراف معیار خطای بک‌تست ساخته می‌شود؛
+            هیچ عدد سناریو دستی وارد نمی‌شود.
+          </p>
+          <ol class="guide-steps">
+            <li>اگر از جریان اصلی آمده‌اید، فایل و تأیید کیفیت همان اجرا خودکار استفاده می‌شود.</li>
+            <li>در غیر این صورت فایل را بارگذاری کنید و «بررسی کیفیت داده» را بزنید.</li>
+            <li>گزارش کیفیت داده را تأیید کنید تا داشبورد ساخته شود.</li>
+          </ol>
+        </section>
+
+        <section class="card" id="upload-card">
+          <div class="card-head">
+            <div>
+              <h2>دادهٔ ورودی</h2>
+              <p>اگر از جریان اصلی آمده‌اید، فایل و کیفیت همان اجرا مستقیم استفاده می‌شود.</p>
+            </div>
+            <span class="badge" id="source-badge">بدون نشست</span>
           </div>
 
-          <div class="controls">
-            <label class="field">
-              <span>ماه‌های گذشته</span>
-              <select id="months" name="months">
-                <option value="3">۳ ماه</option>
-                <option value="6" selected>۶ ماه</option>
-                <option value="9">۹ ماه</option>
-                <option value="12">۱۲ ماه</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>افق</span>
-              <select id="horizon" name="horizon">
-                <option value="auto" selected>تا پایان ماه میلادی بعد</option>
-                <option value="30">۳۰ روز</option>
-              </select>
-            </label>
-            <button type="button" class="btn btn-primary" id="check-btn">
-              بررسی کیفیت داده
-            </button>
-            <button type="submit" class="btn btn-accent" id="submit-btn" disabled
-                    title="ابتدا کیفیت داده را بررسی و تأیید کنید">
-              ساخت داشبورد
-            </button>
-          </div>
-        </form>
+          <form id="comparison-form" class="upload-form" novalidate>
+            <div class="dropzone" id="dropzone" tabindex="0" role="button"
+                 aria-label="انتخاب یا رهاکردن فایل اکسل">
+              <input type="file" id="file" name="file" accept=".xlsx,.xlsm,.xls" hidden />
+              <p class="dropzone-title">فایل اکسل را اینجا رها کنید یا کلیک کنید</p>
+              <p class="dropzone-hint">xlsx / xlsm / xls — بدون بارگذاری، کارت از نشست دیگر می‌خواند.</p>
+              <p class="dropzone-file" id="file-name" hidden></p>
+            </div>
 
-        <section class="quality" id="quality-gate" hidden aria-live="polite">
-          <div class="quality-head">
-            <h4>گزارش کیفیت داده</h4>
-            <span class="badge" id="quality-status"></span>
-          </div>
-          <p class="muted" id="quality-summary"></p>
-          <p class="muted" id="quality-plan"></p>
-          <ul class="check-list" id="quality-checks"></ul>
-          <div class="quality-actions">
-            <button type="button" class="btn btn-primary btn-sm" id="approve-btn" hidden>
-              تأیید کیفیت و ادامه
-            </button>
-            <span class="muted" id="quality-hint"></span>
+            <div class="controls">
+              <label class="field">
+                <span>ماه‌های گذشته</span>
+                <select id="months" name="months">
+                  <option value="3">۳ ماه</option>
+                  <option value="6" selected>۶ ماه</option>
+                  <option value="9">۹ ماه</option>
+                  <option value="12">۱۲ ماه</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>افق</span>
+                <select id="horizon" name="horizon">
+                  <option value="auto" selected>تا پایان ماه میلادی بعد</option>
+                  <option value="30">۳۰ روز</option>
+                </select>
+              </label>
+              <button type="button" class="btn btn-secondary" id="check-btn">بررسی کیفیت</button>
+              <button type="submit" class="btn btn-primary" id="submit-btn" disabled>ساخت داشبورد</button>
+            </div>
+          </form>
+
+          <section id="quality-gate" hidden>
+            <div class="quality-head">
+              <h3>گزارش کیفیت</h3>
+              <span class="badge" id="quality-status"></span>
+            </div>
+            <p class="muted" id="quality-summary"></p>
+            <p class="muted" id="quality-plan"></p>
+            <ul class="check-list" id="quality-checks"></ul>
+            <div class="quality-actions">
+              <button type="button" class="btn btn-primary" id="approve-btn" hidden>تأیید کیفیت و ادامه</button>
+              <span class="muted" id="quality-hint"></span>
+            </div>
+          </section>
+
+          <p class="alert alert-error" id="error-box" hidden role="alert"></p>
+          <div class="progress" id="progress" hidden aria-live="polite">
+            <div class="spinner" aria-hidden="true"></div>
+            <span>در حال ساخت داشبورد…</span>
           </div>
         </section>
 
-        <p class="alert alert-error" id="error-box" hidden role="alert"></p>
-        <div class="progress" id="progress" hidden aria-live="polite">
-          <div class="spinner" aria-hidden="true"></div>
-          <span>در حال ساخت داشبورد مقایسه‌ای…</span>
-        </div>
-      </section>
+        <section id="results" hidden>
+          <div class="kpi-grid" id="kpis"></div>
 
-      <section id="results" hidden>
-        <div class="kpi-grid" id="kpis"></div>
+          <div class="card">
+            <div class="card-head">
+              <h3>ماه‌های گذشته — دادهٔ واقعی</h3>
+              <div class="segmented" id="past-switch">
+                <button type="button" class="seg is-active" data-metric="orders">سفارش</button>
+                <button type="button" class="seg" data-metric="gmv">GMV</button>
+                <button type="button" class="seg" data-metric="aov">AOV</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="table table-compact" id="past-table"><thead></thead><tbody></tbody></table>
+            </div>
+          </div>
 
-        <p class="next-step">
-          این نمای ماهانه است. برای پیش‌بینی روزانهٔ هر موجودیت و جدول اعتبار مدل‌ها
-          <a href="/">صفحهٔ اجرای پیش‌بینی</a> را ببینید.
-        </p>
+          <div class="card">
+            <div class="card-head">
+              <h3>ماه آینده — سه سناریو</h3>
+              <span class="badge" id="scenario-badge"></span>
+            </div>
+            <div class="table-wrap">
+              <table class="table table-compact" id="scenario-table"><thead></thead><tbody></tbody></table>
+            </div>
+            <p class="muted" id="scenario-note"></p>
+          </div>
 
-        <div class="card">
-          <div class="card-head">
-            <h3>ماه‌های گذشته — دادهٔ واقعی</h3>
-            <div class="head-actions">
-              <div class="segmented" id="past-switch" role="tablist" aria-label="شاخص گذشته">
-                <button type="button" class="seg is-active" data-metric="orders" role="tab">سفارش</button>
-                <button type="button" class="seg" data-metric="gmv" role="tab">GMV</button>
-                <button type="button" class="seg" data-metric="aov" role="tab">AOV</button>
+          <div class="card">
+            <div class="card-head">
+              <h3>نمودار مقایسه‌ای</h3>
+              <div class="segmented" id="chart-switch">
+                <button type="button" class="seg is-active" data-metric="orders">سفارش</button>
+                <button type="button" class="seg" data-metric="gmv">GMV</button>
+              </div>
+            </div>
+            <div class="chart-box">
+              <svg id="chart" class="chart" viewBox="0 0 800 320" role="img"
+                   aria-label="نمودار ماه‌های گذشته و سناریوهای ماه آینده"></svg>
+              <div class="legend">
+                <span><i class="dot dot-actual"></i>ماه‌های گذشته</span>
+                <span><i class="dot dot-pess"></i>بدبینانه</span>
+                <span><i class="dot dot-real"></i>واقع‌بینانه</span>
+                <span><i class="dot dot-opt"></i>خوش‌بینانه</span>
               </div>
             </div>
           </div>
-          <div class="table-wrap">
-            <table class="table table-compact" id="past-table">
-              <thead></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
 
-        <div class="card">
-          <div class="card-head">
-            <h3>ماه آینده — سه سناریو</h3>
-            <span class="badge" id="scenario-badge"></span>
-          </div>
-          <div class="table-wrap">
-            <table class="table table-compact" id="scenario-table">
-              <thead></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <p class="muted" id="scenario-note"></p>
-        </div>
-
-        <div class="card">
-          <div class="card-head">
-            <h3>نمودار مقایسه‌ای</h3>
-            <div class="head-actions">
-              <div class="segmented" id="chart-switch" role="tablist" aria-label="شاخص نمودار">
-                <button type="button" class="seg is-active" data-metric="orders" role="tab">سفارش</button>
-                <button type="button" class="seg" data-metric="gmv" role="tab">GMV</button>
-              </div>
+          <div class="card">
+            <h3>اعتبار سناریوها</h3>
+            <p class="muted" id="validity-note"></p>
+            <div class="table-wrap">
+              <table class="table table-compact" id="validity-table">
+                <thead><tr><th>مدل</th><th>WAPE</th><th>Bias</th></tr></thead>
+                <tbody></tbody>
+              </table>
             </div>
+            <ul class="warning-list" id="warnings"></ul>
           </div>
-          <div class="chart-wrap">
-            <svg id="chart" viewBox="0 0 800 320" role="img"
-                 aria-label="نمودار ماه‌های گذشته و سناریوهای ماه آینده"></svg>
-            <div class="legend">
-              <span><i class="dot dot-actual"></i>ماه‌های گذشته</span>
-              <span><i class="dot dot-pess"></i>بدبینانه</span>
-              <span><i class="dot dot-forecast"></i>واقع‌بینانه</span>
-              <span><i class="dot dot-opt"></i>خوش‌بینانه</span>
-            </div>
-          </div>
-        </div>
+        </section>
+      </main>
 
-        <div class="card">
-          <div class="card-head"><h3>اعتبار سناریوها</h3></div>
-          <p class="muted" id="validity-note"></p>
-          <div class="table-wrap">
-            <table class="table table-compact" id="validity-table">
-              <thead><tr><th scope="col">مدل</th><th scope="col">WAPE</th><th scope="col">Bias</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <ul class="warning-list" id="warnings"></ul>
-        </div>
-      </section>
-    </main>
-
-    <footer class="footer">
-      <span>گذشته از دادهٔ واقعی · آینده از خطای بک‌تست — بدون عدد دستی</span>
-      <span>© {{year}} BNPL Forecasting Engine</span>
-    </footer>
+      <footer class="footer">
+        <span>گذشته از دادهٔ واقعی · آینده از خطای بک‌تست — بدون عدد دستی</span>
+        <span>© {{year}} BNPL Forecasting Engine</span>
+      </footer>
+    </div>
   </div>
 
   <script src="/static/comparison.js" defer></script>

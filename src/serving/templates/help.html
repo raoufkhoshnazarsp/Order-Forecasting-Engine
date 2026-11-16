@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>راهنما و مستندات | BNPL</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">پرش به محتوای اصلی</a>
+
+  <div class="shell">
+    {{> _sidebar.html}}
+
+    <div class="main-col">
+      <header class="topbar">
+        <div class="crumbs"><span>فضای کاری</span><span>/</span><strong>راهنما و مستندات</strong></div>
+        <div class="top-actions">
+          <a class="btn btn-secondary btn-sm" href="/">بازگشت به جریان</a>
+        </div>
+      </header>
+
+      <main id="main">
+        <section class="hero">
+          <h1>راهنما و مستندات</h1>
+          <p>
+            این بخش دو چیز دارد: توضیح اینکه هر عدد از کجا می‌آید، و مستندات فنی API
+            برای کسانی که می‌خواهند نتیجه را در سیستم خودشان استفاده کنند.
+          </p>
+        </section>
+
+        <section class="card">
+          <h2>قالب دادهٔ ورودی</h2>
+          <p>
+            فایل اکسل باید در یکی از این سه چیدمان باشد؛ موتور هر برگه را خودش تشخیص می‌دهد:
+          </p>
+          <ol>
+            <li><strong>مدل دادهٔ تجاری</strong> — ردیف = تاریخ × ورتیکال × دسته با ستون‌های سفارش و GMV. (پیشنهادی)</li>
+            <li><strong>دادهٔ روزانهٔ تجمیع‌شده</strong> — ردیف = تاریخ × موجودیت.</li>
+            <li><strong>سفارش‌های خام</strong> — هر ردیف یک سفارش؛ موتور خودش جمع می‌زند.</li>
+          </ol>
+          <div class="btn-row">
+            <a class="btn btn-secondary btn-sm" href="/api/template">دانلود قالب خالی</a>
+            <a class="btn btn-secondary btn-sm" href="/api/sample">دانلود دادهٔ نمونه</a>
+          </div>
+          <p class="muted">
+            «قالب» را وقتی استفاده کنید که ساختار فایل خودتان را می‌سازید؛ «نمونه» را
+            برای آزمودن جریان با دادهٔ ساختگی ۲۰۰ روزه.
+          </p>
+        </section>
+
+        <section class="card">
+          <h2>هر عدد یعنی چه؟</h2>
+          <ul>
+            <li><strong>WAPE</strong> — جمع قدرمطلق خطا ÷ جمع واقعی. کمتر بهتر است.</li>
+            <li><strong>Bias</strong> — جهت خطا. مثبت یعنی پیش‌بینی معمولاً بالاتر از واقعیت.</li>
+            <li><strong>پوشش بازهٔ ۹۰٪</strong> — درصد دفعاتی که مقدار واقعی داخل بازه بوده است؛ باید نزدیک ۹۰٪ باشد.</li>
+            <li><strong>سناریوی بدبینانه/واقع‌بینانه/خوش‌بینانه</strong> — از انحراف معیار خطای بک‌تست ساخته می‌شوند، نه از حدس.</li>
+            <li><strong>سناریوی حساسیت</strong> — یک فرض قابل‌تنظیم روی پیش‌بینی پایه؛ پیش‌بینی اصلی دست‌نخورده می‌ماند.</li>
+          </ul>
+        </section>
+
+        <section class="card">
+          <h2>مستندات API</h2>
+          <p>همهٔ مسیرها JSON برمی‌گردانند مگر آن‌که صریحاً فایل باشد.</p>
+          <div class="table-wrap">
+            <table class="table table-compact">
+              <thead><tr><th scope="col">مسیر</th><th scope="col">کار</th></tr></thead>
+              <tbody>
+                <tr><td class="mono">POST /api/runs</td><td>آپلود فایل، اجرای گیت کیفیت، ساخت نشست و پیش‌نمایش</td></tr>
+                <tr><td class="mono">POST /api/runs/<run_id>/forecast</td><td>پیش‌بینی و بک‌تست با توکن تأیید</td></tr>
+                <tr><td class="mono">POST /api/runs/<run_id>/comparison</td><td>داشبورد ماهانه از همان فایل</td></tr>
+                <tr><td class="mono">POST /api/runs/<run_id>/sensitivity</td><td>سناریوی حساسیت با فرض قابل‌تنظیم</td></tr>
+                <tr><td class="mono">GET /api/runs/<run_id></td><td>بازیابی نشست</td></tr>
+                <tr><td class="mono">GET /api/runs</td><td>سابقهٔ اجراها</td></tr>
+                <tr><td class="mono">GET /api/runs/<run_id>/package</td><td>دانلود فایل تحویل</td></tr>
+                <tr><td class="mono">POST /api/quality</td><td>فقط گزارش کیفیت (بدون نشست)، سازگار با نسخهٔ قبلی</td></tr>
+                <tr><td class="mono">POST /api/forecast · /api/delivery · /api/comparison</td><td>مسیرهای قبلی: آپلود مستقیم با توکن، سازگار با کلاینت‌های قدیمی</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="muted">مرجع کامل با اعتبارسنجی: <a href="/api/docs" target="_blank" rel="noopener">/api/docs</a></p>
+        </section>
+
+        <section class="card">
+          <h2>گزارش استاتیک</h2>
+          <p>
+            نسخهٔ نمایشی ثابت (برای دمو و ارسال لینک بدون نصب) در
+            <a href="/report/" target="_blank" rel="noopener">/report/</a> سرو می‌شود
+            و به اپ زنده وصل نیست.
+          </p>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <span>پردازش کاملاً محلی روی فایل اکسل — بدون اتصال به دیتابیس</span>
+        <span>© {{year}} BNPL Forecasting Engine</span>
+      </footer>
+    </div>
+  </div>
+</body>
+</html>

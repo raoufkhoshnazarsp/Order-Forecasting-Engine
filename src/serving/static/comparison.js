@@ -214,9 +214,15 @@
     submitBtn.disabled = false;
   });
 
+  let sessionRun = null;
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     clearError();
+    if (sessionRun) {
+      buildFromSession(sessionRun, document.getElementById("months").value);
+      return;
+    }
     const file = fileInput.files[0];
     if (!file) {
       showError("ابتدا فایل اکسل را انتخاب کنید.");
@@ -238,14 +244,18 @@
       payload = data;
       render(data);
       results.hidden = false;
-      if (guide) guide.hidden = true;
       statusPill.textContent = "داشبورد آماده است";
+      statusPill.className = "pill";
       results.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (error) {
       showError(error.message || "خطای نامشخص در ساخت داشبورد.");
     } finally {
       setBusy(false);
     }
+  });
+
+  document.getElementById("months").addEventListener("change", (event) => {
+    if (sessionRun) buildFromSession(sessionRun, event.target.value);
   });
 
   function verticalLabel(name) {
@@ -573,33 +583,96 @@
   });
 
   /* ---------- cross-page state ---------- */
-  const guide = document.getElementById("guide");
-  const lastRunBox = document.getElementById("last-run");
-
-  function renderLastRun(entry) {
-    if (!entry || !lastRunBox) return;
-    const parts = [];
-    if (entry.file) parts.push("فایل <strong>" + entry.file + "</strong>");
-    if (entry.origin) parts.push("مبدأ " + entry.origin);
-    if (entry.target) parts.push("تا " + entry.target);
-    if (entry.horizon) parts.push("افق " + fa.format(entry.horizon) + " روز");
-    if (entry.model) parts.push("مدل " + entry.model);
-    if (entry.at) parts.push(entry.at.replace("T", " "));
-    if (!parts.length) return;
-    lastRunBox.innerHTML = "آخرین اجرا: " + parts.join(" · ");
-    lastRunBox.hidden = false;
-  }
+  const sessionStrip = document.getElementById("session-strip");
+  const sourceBadge = document.getElementById("source-badge");
 
   async function loadStatus() {
     try {
       const response = await fetch("/api/status", { cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json();
-      renderLastRun(data.last_run);
+      const entry = data.last_run;
+      const lastRun = document.getElementById("last-run");
+      if (entry && lastRun) {
+        const parts = [];
+        if (entry.file) parts.push("آخرین اجرا: " + entry.file);
+        if (entry.origin) parts.push("مبدأ " + entry.origin);
+        if (entry.horizon) parts.push("افق " + fa.format(entry.horizon) + " روز");
+        if (parts.length) {
+          lastRun.textContent = parts.join(" · ");
+          lastRun.hidden = false;
+        }
+      }
     } catch (err) {
       /* the strip is a convenience; never block the page on it */
     }
   }
 
+  /* A link from the run flow carries ?run_id=; the file and its approval are
+     already on the server, so the page never asks the user to upload twice. */
+  async function loadFromSession() {
+    const runId = new URLSearchParams(location.search).get("run_id");
+    if (!runId) return;
+    try {
+      const response = await fetch(`/api/runs/${encodeURIComponent(runId)}`, { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "نشست پیدا نشد.");
+      const record = data.run || {};
+      sessionRun = { runId, token: (data.quality && data.quality.token) || "" };
+      sourceBadge.textContent = "فایل این اجرا";
+      sourceBadge.className = "badge badge-pass";
+      document.getElementById("dropzone").hidden = true;
+      document.getElementById("check-btn").hidden = true;
+      document.getElementById("submit-btn").disabled = false;
+      sessionStrip.hidden = false;
+      sessionStrip.innerHTML =
+        `این داشبورد از فایل <strong>${record.file || runId}</strong> ساخته می‌شود` +
+        (record.origin ? ` · مبدأ ${record.origin}` : "") +
+        (record.horizon ? ` · افق ${fa.format(record.horizon)} روز` : "") +
+        ' · <a href="/">بازگشت به جریان</a>';
+      if (data.comparison) {
+        payload = data.comparison;
+        render(payload);
+        results.hidden = false;
+        statusPill.textContent = "داشبورد آماده است";
+        statusPill.className = "pill";
+        return;
+      }
+      buildFromSession(sessionRun, document.getElementById("months").value);
+    } catch (error) {
+      sourceBadge.textContent = "نشست نامعتبر";
+      sourceBadge.className = "badge badge-fail";
+      showError(error.message);
+    }
+  }
+
+  async function buildFromSession(run, months) {
+    clearError();
+    setBusy(true, "در حال ساخت داشبورد از همان فایل…");
+    results.hidden = true;
+    try {
+      const body = new FormData();
+      body.append("quality_token", run.token);
+      body.append("months", String(months));
+      const response = await fetch(`/api/runs/${encodeURIComponent(run.runId)}/comparison`, {
+        method: "POST",
+        body,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "ساخت داشبورد ناموفق بود.");
+      payload = data;
+      render(data);
+      results.hidden = false;
+      statusPill.textContent = "داشبورد آماده است";
+      statusPill.className = "pill";
+      results.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (error) {
+      showError(error.message || "خطای نامشخص در ساخت داشبورد.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   loadStatus();
+  loadFromSession();
 })();

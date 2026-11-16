@@ -3,32 +3,41 @@
       <span class="brand-mark" aria-hidden="true"></span>
       <div>
         <div class="brand-name">Forecast Studio</div>
-        <div class="brand-sub">موتور پیش‌بینی روزانهٔ سفارش BNPL</div>
+        <div class="brand-sub">پیش‌بینی روزانهٔ سفارش BNPL</div>
       </div>
     </div>
 
     <nav class="side-nav" aria-label="ناوبری اصلی">
-      <p class="side-nav-title">داشبورد</p>
+      <p class="side-nav-title">مسیر کار</p>
       <a href="/"{{cur_home}}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>
         </svg>
-        اجرای پیش‌بینی
+        جریان پیش‌بینی
       </a>
-      <a href="/comparison"{{cur_comparison}}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+      <a href="/comparison"{{cur_comparison}}{{comparison_current}}>        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15l4-5 3 3 4-6"/>
         </svg>
-        مقایسهٔ ماهانه
+        داشبورد ماهانه
       </a>
-      <a href="/report/">
+
+      <p class="side-nav-title">کمک</p>
+      <a href="/help"{{cur_help}}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4v.3"/>
+          <path d="M12 16.5h.01"/>
+        </svg>
+        راهنما و مستندات
+      </a>
+      <a href="/report/" target="_blank" rel="noopener">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M6 3h9l4 4v14H6z"/><path d="M9 12h6M9 16h6"/>
         </svg>
-        گزارش استاتیک
+        گزارش استاتیک <span class="nav-tag">دمو</span>
       </a>
       <a href="/api/docs" target="_blank" rel="noopener">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
