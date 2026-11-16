@@ -60,6 +60,22 @@ python scripts/install_cron.py             # نصب (06:30 UTC = 10:00 تهرا�
 خط نصب‌شده با نشانگر `# bnpl-forecast-daily` علامت می‌خورد، پس اجرای دوباره
 خط قبلی را جایگزین می‌کند نه اینکه تکرارش کند.
 
+**ورودی باید در مسیری باشد که کانتینر می‌بیند.** فقط `artifacts/` و `reports/`
+به کانتینر mount می‌شوند؛ فایل داخل `uploads/` برای کانتینر وجود ندارد. مسیر
+پیش‌فرض `artifacts/inputs/data-model.xlsx` است. اسکریپت نصب مسیر کانتینر را به
+مسیر میزبان نگاشت می‌کند و اگر فایل را نبیند نصب را رد می‌کند (با `--force`
+می‌توان رد کرد) — خط cronی که هر روز صبح به فایل ناموجود اشاره کند، بی‌صدا شکست
+می‌خورد.
+
+پس از نصب، یک بار خودِ دستور را اجرا کنید؛ نصب‌شدنِ خط ثابت نمی‌کند که خط کار
+می‌کند:
+
+```bash
+crontab -l | grep bnpl
+cd /opt/order-forecasting-engine && docker compose exec -T forecast-studio \
+  python scripts/scheduled_run.py --workbook /app/artifacts/inputs/data-model.xlsx
+```
+
 ## مانیتورینگ
 
 سه سیگنال، چون سه شکست مختلف وجود دارد:
