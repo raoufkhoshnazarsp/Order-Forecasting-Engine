@@ -9,7 +9,7 @@ from __future__ import annotations
 import io
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -27,6 +27,8 @@ from src.serving.delivery import (
 )
 from src.serving.comparison import ComparisonError, build_comparison
 from src.serving.quality import QualityGateError, check_workbook, require_quality
+from src.monitoring.health import health_report, job_health, render_prometheus
+from src.monitoring.registry import current_version, history as registry_history
 from src.serving.state import last_run, record_run
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -89,7 +91,72 @@ def status() -> dict:
 
 @app.get("/healthz")
 def healthz() -> dict:
+    """Liveness only: the process is up. Full state lives at /api/health."""
     return {"status": "ok"}
+
+
+@app.get("/api/health")
+def health(reference: str | None = None) -> dict:
+    """Data freshness, model drift and job state in one verdict.
+
+    Deliberately does not re-run the pipeline: the dashboard is polled, and a
+    two-minute forecast per poll is not a health check. It reads the last run's
+    artefacts instead, so it answers "is what we last published still sound?".
+    """
+    try:
+        as_of = date.fromisoformat(reference) if reference else None
+    except ValueError:
+        as_of = None
+    last = last_run() or {}
+    mart = None
+    backtest = None
+    cached = _last_artifacts()
+    if cached:
+        mart, backtest = cached
+    report = health_report(mart, backtest_frame=backtest, reference=as_of)
+    payload = report.as_dict()
+    payload["last_run"] = last
+    payload["registry"] = {
+        "current": current_version(),
+        "versions": registry_history()[:10],
+    }
+    payload["job"] = job_health()
+    return payload
+
+
+@app.get("/api/health/metrics")
+def health_metrics(reference: str | None = None) -> Response:
+    """Prometheus text format, for scraping by an external monitor."""
+    try:
+        as_of = date.fromisoformat(reference) if reference else None
+    except ValueError:
+        as_of = None
+    cached = _last_artifacts()
+    mart, backtest = cached if cached else (None, None)
+    report = health_report(mart, backtest_frame=backtest, reference=as_of)
+    return Response(render_prometheus(report), media_type="text/plain; version=0.0.4")
+
+
+def _last_artifacts():
+    """The mart and selected backtest rows of the newest scheduled run, if any."""
+    base = Path("artifacts") / "scheduled"
+    if not base.is_dir():
+        return None
+    runs = sorted((p for p in base.iterdir() if p.is_dir()), key=lambda p: p.name)
+    if not runs:
+        return None
+    latest = runs[-1]
+    try:
+        mart = pd.read_parquet(latest / "mart.parquet")
+    except Exception:  # noqa: BLE001 - a broken artefact is "no data", not a 500
+        mart = None
+    try:
+        backtest = pd.read_parquet(latest / "backtest.parquet")
+    except Exception:  # noqa: BLE001
+        backtest = None
+    if mart is None and backtest is None:
+        return None
+    return mart, backtest
 
 
 @app.get("/api/template")

@@ -29,6 +29,7 @@
 - [تست‌ها](#-تستها)
 - [Docker](#-docker)
 - [استقرار و دموی آنلاین](#-استقرار-و-دموی-آنلاین)
+- [اجرای روزانه و مانیتورینگ](#-اجرای-روزانه-و-مانیتورینگ)
 - [رودمپ](#-رودمپ)
 - [محدودیت‌ها و سؤال‌های باز](#-محدودیتها-و-سؤالهای-باز)
 
@@ -56,7 +57,8 @@
 | SHAP / Explainability | ✅ پیاده‌شده | سهم خطی دقیق برای ridge، اهمیت سراسری برای LightGBM؛ صریحاً غیرعلّی |
 | Lifecycle Detection | ✅ پیاده‌شده | PELT بدون `ruptures`، هزینهٔ برازش خطی، ویژگی‌های رژیم بدون نشت |
 | Scenario Engine | ✅ پیاده‌شده | سناریو به‌عنوان تبدیل خالص پیش‌بینی پایه، با شناسهٔ بازتولیدپذیر |
-| زمان‌بندی روزانه | ⬜ در رودمپ | فاز ۹ |
+| زمان‌بندی روزانه | ✅ پیاده‌شده | اجرای خودکار با کدهای خروج ۰/۱/۲؛ هر اجرا در `job_runs.json` ثبت می‌شود |
+| مانیتورینگ و رجیستری مدل | ✅ پیاده‌شده | تازگی/شکاف داده، رانش پوشش و WAPE، `/api/health`، ارتقا و rollback نسخه |
 
 ---
 
@@ -352,7 +354,15 @@ src/
     gmv.py                ⭐ پیش‌بینی AOV و ساخت GMV = سفارش × AOV
     templates/index.html
     static/styles.css, app.js
-  monitoring/             (رزرو برای فاز ۹)
+  evaluation/conformal.py بازهٔ اطمینان به تفکیک سبد افق
+  evaluation/drivers.py   تخصیص سهم ویژگی‌ها (غیرعلّی)
+  lifecycle/
+    changepoints.py       PELT با هزینهٔ برازش خطی
+    regime.py             ویژگی‌های رژیم بدون نشت
+  scenarios/scenario.py   سناریو به‌عنوان تبدیل خالص
+  monitoring/
+    health.py             تازگی، شکاف، رانش، سن کار، Prometheus
+    registry.py           ثبت نسخهٔ مدل، ارتقا، rollback
 
 scripts/
   forecast_from_excel.py  ⭐ CLI اصلی
@@ -362,12 +372,19 @@ scripts/
   extract_history.py      استخراج تاریخی (اختیاری)
   build_data_mart.py      ساخت mart از snapshot
   backtest.py             بک‌تست مستقل
+  scheduled_run.py        ⭐ اجرای کامل روزانه با کدهای خروج ۰/۱/۲
+  monitor.py              health / registry / promote / rollback / job
+  install_cron.py         نصب خط cron با نشانگر
+  deploy.sh               pull، rebuild، restart، بررسی سلامت
 
 data/calendar/
   dim_date.csv.gz         جدول تقویم شمسی (۱۸٬۱۸۴ روز)
 
+docs/
+  deployment.md           استقرار، cron، آستانه‌ها، rollback
+
 sql/                      قالب‌های SQL اختیاری برای آینده
-tests/                    ۱۷۳ تست
+tests/                    ۳۳۲ تست
 ```
 
 ---
@@ -496,7 +513,7 @@ TOTAL = Σ(VERTICAL) + Σ(VENTURE)
 ## ✅ تست‌ها
 
 ```bash
-python -m pytest          # ۱۷۳ تست
+python -m pytest          # ۳۳۲ تست
 python scripts/smoke_run.py   # اجرای سرتاسری روی دادهٔ مصنوعی
 ```
 
@@ -520,6 +537,8 @@ python scripts/smoke_run.py   # اجرای سرتاسری روی دادهٔ مص
 | `test_quality_api.py` | الزام توکن کیفیت در `/api/forecast` و `/api/delivery` |
 | `test_ui_shell.py` | پنهان‌بودن متن پردازش و مقیاس فاصله |
 | `test_delivery.py` | قالب فایل تحویل: ستون‌ها، `VERTICALS` = جمع دسته‌ها، Venture/Pay هم‌سطح، GMV = سفارش × AOV |
+| `test_monitoring.py` | تازگی داده، شکاف، رانش پوشش و WAPE، سن کار، گزارش و Prometheus، رجیستری و rollback |
+| `test_deployment.py` | خط cron، کدهای خروج اجرای زمان‌بندی‌شده، اندپوینت‌های `/api/health` |
 
 ---
 
@@ -574,6 +593,48 @@ python scripts/build_static_demo.py --out _site
 
 ---
 
+## 🔔 اجرای روزانه و مانیتورینگ
+
+**یک اجرا، کل زنجیره:** `scripts/scheduled_run.py` خط لوله را می‌زند، سلامت را بررسی می‌کند، نسخهٔ مدل را در رجیستری ثبت می‌کند و اجرا را در `artifacts/monitoring/job_runs.json` می‌نویسد. خروجی‌ها در `artifacts/scheduled/<run_id>/` می‌مانند، پس هر عدد قابل ردیابی به ورودی و نسخهٔ مدل است.
+
+| کد خروج | معنا |
+| --- | --- |
+| ۰ | سالم |
+| ۱ | خود پیش‌بینی شکست خورد |
+| ۲ | پیش‌بینی انجام شد ولی داده ناسالم است |
+
+cron فقط روی خروجی غیرصفر ایمیل می‌فرستد، بنابراین روزی که داده کهنه است هم به گوش کسی می‌رسد. نصب:
+
+```bash
+python scripts/install_cron.py --dry-run   # فقط نمایش
+python scripts/install_cron.py             # ۰۶:۳۰ UTC هر روز
+```
+
+خط نصب‌شده نشانگر `# bnpl-forecast-daily` دارد، پس اجرای دوباره جایگزین می‌کند نه تکرار.
+
+**چهار سیگنال `src/monitoring/health.py`:**
+
+| سیگنال | آستانه |
+| --- | --- |
+| تازگی داده | ۲ روز هشدار، ۴ روز خطا |
+| شکاف موجودیت-روز | بیش از ۵٪ هشدار |
+| رانش مدل | پوشش ۹۰٪ زیر ۸۰٪ یا WAPE اخیر بالای ۳۰٪ |
+| سن کار | بیش از ۳۶ ساعت از آخرین اجرای موفق |
+
+`GET /api/health` همان گزارش را JSON می‌دهد و `GET /api/health/metrics` قالب Prometheus. هر دو از آرتیفکت آخرین اجرا می‌خوانند و خط لوله را دوباره اجرا نمی‌کنند — یک اندپوینت سلامت که خودش گران است، خودش یک منبع خرابی است.
+
+**رجیستری مدل:** نسخهٔ تازه فقط وقتی خودکار فعال می‌شود که نسخهٔ فعالی نباشد یا WAPE بک‌تستش بدتر نباشد؛ نسخهٔ بدتر `candidate` می‌ماند. `rollback` فقط به نسخه‌ای برمی‌گردد که قبلاً واقعاً فعال بوده است.
+
+```bash
+python scripts/monitor.py health --prometheus
+python scripts/monitor.py registry
+python scripts/monitor.py rollback
+```
+
+جزئیات کامل: [`docs/deployment.md`](docs/deployment.md)
+
+---
+
 ## 🗺 رودمپ
 
 | فاز | عنوان | وضعیت |
@@ -587,7 +648,7 @@ python scripts/build_static_demo.py --out _site
 | ۶ | تطبیق سلسله‌مراتبی پیشرفته | ✅ انجام‌شده |
 | ۷ | بازهٔ اطمینان + Explainability | ✅ انجام‌شده |
 | ۸ | Lifecycle و Scenario Engine | ✅ انجام‌شده |
-| ۹ | استقرار production و مانیتورینگ | ⬜ |
+| ۹ | استقرار production و مانیتورینگ | ✅ انجام‌شده |
 
 جزئیات کامل با معیارهای خروج در [`ROADMAP.md`](ROADMAP.md).
 

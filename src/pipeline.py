@@ -90,6 +90,9 @@ class PipelineResult:
     total_last_actual_aov: float | None = None
     dropped_partial_days: list[str] = field(default_factory=list)
     backtest_report: dict[str, Any] = field(default_factory=dict)
+    # The selected model's backtest rows, with calibrated bounds attached.
+    # Not part of summary(): monitoring reads it, the UI does not need it.
+    backtest_rows: pd.DataFrame | None = None
     global_model: dict[str, Any] = field(default_factory=dict)
     feature_availability: dict[str, Any] = field(default_factory=dict)
     scenarios: list[dict[str, Any]] = field(default_factory=list)
@@ -333,6 +336,7 @@ def run_pipeline(
     ranking: list[dict[str, Any]] = []
     backtest_report: dict[str, Any] = {}
     global_fit: dict[str, Any] = {}
+    backtest_rows: pd.DataFrame | None = None
     calibration = None
     selected = model
     bt_config = BacktestConfig(
@@ -394,6 +398,17 @@ def run_pipeline(
                 coverage = coverage_by(selected_rows, calibration, level=0.90)
                 backtest_report["coverage"] = coverage.to_dict("records")
                 backtest_report["calibration"] = calibration.as_dict()
+                # Keep the selected rows with their calibrated band so the
+                # monitoring job can measure drift on the model that shipped,
+                # not on a re-derived approximation of it.
+                backtest_rows = selected_rows.copy()
+                lower, upper = [], []
+                for index, row in backtest_rows.iterrows():
+                    width = calibration.half_width(int(row["horizon"]), 0.90)
+                    lower.append(max(float(row["yhat"]) * (1 - width), 0.0))
+                    upper.append(float(row["yhat"]) * (1 + width))
+                backtest_rows["lower_90"] = lower
+                backtest_rows["upper_90"] = upper
                 # Which reconciliation method actually reduces error on this
                 # data? Measured per level, because a method can win on the
                 # total and lose on the leaves.
@@ -550,6 +565,7 @@ def run_pipeline(
         total_forecast=total_forecast,
         backtest_ranking=ranking,
         backtest_report=backtest_report,
+        backtest_rows=backtest_rows,
         global_model=global_fit,
         feature_availability=feature_availability,
         scenarios=scenario_table,
