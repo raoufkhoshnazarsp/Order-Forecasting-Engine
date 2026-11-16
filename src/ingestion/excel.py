@@ -323,7 +323,7 @@ def load_workbook(path: str | Path) -> ExcelLoadResult:
     """Read every sheet, auto-detect layout, and return normalized leaf facts."""
     path = Path(path)
     if not path.exists():
-        raise ExcelInputError(f"Workbook not found: {path.name}")
+        raise ExcelInputError(f"Workbook not found: {path.resolve()}")
     if path.suffix.lower() not in {".xlsx", ".xlsm", ".xls"}:
         raise ExcelInputError("Only .xlsx, .xlsm and .xls workbooks are supported")
 
@@ -406,7 +406,7 @@ def load_category_facts(
     """
     path = Path(path)
     if not path.exists():
-        raise ExcelInputError(f"Workbook not found: {path.name}")
+        raise ExcelInputError(f"Workbook not found: {path.resolve()}")
 
     excel_config = load_excel_config()
     lookup = build_header_lookup(excel_config)

@@ -16,7 +16,7 @@ from pathlib import Path
 
 MARKER = "# bnpl-forecast-daily"
 
-DEFAULT_WORKBOOK = "/app/artifacts/web_runs/20261115_182059_data-model.xlsx"
+DEFAULT_WORKBOOK = "/app/artifacts/inputs/data-model.xlsx"
 DEFAULT_LOG = "/opt/order-forecasting-engine/artifacts/scheduled/cron.log"
 
 
