@@ -79,13 +79,21 @@
 - [x] پیش‌بینی AOV و ساخت GMV روزانه به‌صورت `سفارش × AOV`
 - [x] تشخیص و حذف روز ناقص از آموزش
 
-**کارهای باقی‌مانده**
-- [ ] ویژگی‌های کاربر: `active_users`, `new_users`, `returning_users`, `orders_per_active_user`
-- [ ] ویژگی‌های مرچنت: `active_merchants`, `new_merchants`, `merchant_productivity`
-- [ ] ویژگی‌های کمپین: `campaign_active`, `planned_budget`, `days_to_campaign`
-- [ ] ویژگی‌های رویداد و تعطیلات رسمی ایران
-- [ ] رجیستری دسترس‌پذیری ویژگی (FUTURE_KNOWN / FUTURE_ESTIMATED / …)
-- [ ] تست نشت داده برای هر خانوادهٔ ویژگی جدید
+**کارهای باقی‌مانده — انجام‌شده در ۲۰۲۶-۱۱-۱۶**
+- [x] ویژگی‌های کاربر: `active_users`, `new_users`, `returning_users`, `orders_per_active_user`
+- [x] ویژگی‌های مرچنت: `active_merchants`, `new_merchants`, `merchant_productivity`
+- [x] ویژگی‌های کمپین: `campaign_active`, `planned_budget`, `days_to_campaign`, `campaign_click_rate`
+- [x] ویژگی‌های رویداد و تعطیلات رسمی ایران (`configs/holidays.yaml`: ثابت شمسی + قمری صریح)
+- [x] رجیستری دسترس‌پذیری ویژگی (`FUTURE_KNOWN` / `FUTURE_ESTIMATED` / `PAST_ONLY`) با گارد
+- [x] تست نشت داده برای هر خانوادهٔ ویژگی جدید (۲۴ تست)
+
+**یافتهٔ صادقانه**
+- ورک‌بوک فعلی (`data-model.xlsx`) فقط `date`, `entity_id`, `successful_orders`, `gmv`
+  دارد؛ هیچ ستون کاربر/مرچنت/کمپین ندارد. ویژگی‌ها ساخته شده‌اند ولی **صفر جعلی
+  ساخته نمی‌شود** — خانوادهٔ غایب صریحاً در `feature_availability` و در هشدارها
+  گزارش می‌شود.
+- اثر تعطیلات روی همین داده ≈ ۸٪ بیشتر از روزهای عادی، ولی فقط ۵ روز تعطیل در
+  ۱۲۰ روز داده وجود دارد؛ برای ادعای بهبود مدل کافی نیست و در مدل استفاده نشد.
 
 **معیار خروج:** همهٔ ویژگی‌ها برای مبدأهای تاریخی بدون نشت داده بازتولید شوند.
 

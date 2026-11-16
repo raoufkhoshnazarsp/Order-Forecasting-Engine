@@ -26,6 +26,7 @@ from src.evaluation.backtest import (
 from src.evaluation.metrics import bias, wape
 from src.evaluation.report import build_backtest_report
 from src.ingestion.excel import ExcelLoadResult, load_workbook
+from src.features.engagement import availability as engagement_availability
 from src.models.baselines import BASELINES, moving_average
 from src.models.global_model import MODEL_NAME as GLOBAL_MODEL
 from src.models.global_model import global_forecasters
@@ -64,6 +65,7 @@ class PipelineResult:
     dropped_partial_days: list[str] = field(default_factory=list)
     backtest_report: dict[str, Any] = field(default_factory=dict)
     global_model: dict[str, Any] = field(default_factory=dict)
+    feature_availability: dict[str, Any] = field(default_factory=dict)
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -90,6 +92,7 @@ class PipelineResult:
             "backtest_ranking": self.backtest_ranking,
             "backtest_report": self.backtest_report,
             "global_model": self.global_model,
+            "feature_availability": self.feature_availability,
             "warnings": self.warnings,
             "sheets": self.sheet_reports,
         }
@@ -276,6 +279,15 @@ def run_pipeline(
     observed_rows["successful_orders"] = observed_rows["successful_orders"].astype("int64")
 
     warnings = list(loaded.warnings)
+    # Which optional feature families this workbook can actually support. A
+    # missing column is reported, never filled with a fake zero.
+    feature_availability = engagement_availability(observed_rows).as_dict()
+    if feature_availability["missing"]:
+        warnings.append(
+            "Optional feature columns absent from the workbook: "
+            + ", ".join(feature_availability["missing"])
+            + ". Those features were not built."
+        )
     observed_rows, dropped_partial = _drop_partial_last_day(
         observed_rows, master.total_id(), warnings
     )
@@ -448,6 +460,7 @@ def run_pipeline(
         backtest_ranking=ranking,
         backtest_report=backtest_report,
         global_model=global_fit,
+        feature_availability=feature_availability,
         warnings=warnings,
         forecast=forecast,
         mart=mart,

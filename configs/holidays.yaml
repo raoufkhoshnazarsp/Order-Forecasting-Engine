@@ -1,0 +1,44 @@
+# Official Iranian holidays.
+#
+# Two kinds, kept separate on purpose:
+#
+#   fixed_persian  — always the same Persian month/day, so they can be derived
+#                    from dim_date for any year without a lookup.
+#   lunar          — depend on the Islamic calendar and shift every year. They
+#                    are listed explicitly as Gregorian dates. A year that is
+#                    not listed here simply has no lunar holidays; the engine
+#                    reports that rather than guessing.
+#
+# Adding a year is a data edit, not a code change.
+
+fixed_persian:
+  - {month: 1,  day: 1,  name: نوروز}
+  - {month: 1,  day: 2,  name: نوروز}
+  - {month: 1,  day: 3,  name: نوروز}
+  - {month: 1,  day: 4,  name: نوروز}
+  - {month: 1,  day: 12, name: روز جمهوری اسلامی}
+  - {month: 1,  day: 13, name: سیزده‌بدر}
+  - {month: 3,  day: 14, name: رحلت امام خمینی}
+  - {month: 3,  day: 15, name: قیام ۱۵ خرداد}
+  - {month: 11, day: 22, name: پیروزی انقلاب اسلامی}
+
+# Gregorian dates. Persian year 1405 covers 2026-03-21 .. 2027-03-20.
+lunar:
+  1405:
+    - {date: "2026-03-21", name: شهادت حضرت علی}
+    - {date: "2026-04-01", name: عید فطر}
+    - {date: "2026-04-02", name: تعطیلات عید فطر}
+    - {date: "2026-05-27", name: عید قربان}
+    - {date: "2026-06-04", name: عید غدیر}
+    - {date: "2026-06-24", name: تاسوعای حسینی}
+    - {date: "2026-06-25", name: عاشورای حسینی}
+    - {date: "2026-08-24", name: اربعین حسینی}
+    - {date: "2026-09-01", name: رحلت پیامبر و شهادت امام حسن}
+    - {date: "2026-09-02", name: شهادت امام رضا}
+    - {date: "2026-09-10", name: شهادت امام حسن عسکری}
+    - {date: "2026-09-18", name: میلاد پیامبر و امام صادق}
+    - {date: "2026-12-24", name: شهادت حضرت فاطمه}
+  1406:
+    - {date: "2027-03-10", name: شهادت حضرت علی}
+    - {date: "2027-03-21", name: عید فطر}
+    - {date: "2027-05-17", name: عید قربان}
