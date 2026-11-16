@@ -378,6 +378,25 @@ def health_report(
             Alert("error", "job_failing", "هیچ اجرای موفقی در تاریخچهٔ کار ثبت نشده است.")
         )
 
+    # "Unknown" is not "fine". A dashboard that says ok before anything has ever
+    # run is the false-ok this whole module exists to prevent.
+    if freshness["state"] == "unknown":
+        alerts.append(
+            Alert(
+                "warn",
+                "data_unknown",
+                "داده‌ای برای سنجش تازگی نیست؛ هنوز اجرای زمان‌بندی‌شده‌ای ثبت نشده است.",
+            )
+        )
+    if job["state"] == "unknown":
+        alerts.append(
+            Alert(
+                "warn",
+                "job_unknown",
+                "تاریخچهٔ اجرای روزانه خالی است؛ سالم‌بودن کار تأیید نشده.",
+            )
+        )
+
     return HealthReport(
         as_of=(
             pd.Timestamp(reference).date().isoformat()

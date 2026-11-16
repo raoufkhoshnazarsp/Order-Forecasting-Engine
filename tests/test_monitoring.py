@@ -198,6 +198,15 @@ def test_health_report_is_ok_when_everything_is_in_order(monkeypatch, tmp_path):
     assert all(alert.level != "error" for alert in report.alerts)
 
 
+def test_an_empty_system_is_not_reported_ok(monkeypatch, tmp_path):
+    """Nothing has ever run; "ok" would be a claim nothing supports."""
+    monkeypatch.setenv("FORECAST_STATE_DIR", str(tmp_path / "empty"))
+    report = health_report()
+    assert report.status == "warn"
+    codes = {alert.code for alert in report.alerts}
+    assert {"data_unknown", "job_unknown"} <= codes
+
+
 def test_stale_data_makes_the_report_an_error(monkeypatch, tmp_path):
     monkeypatch.setenv("FORECAST_STATE_DIR", str(tmp_path))
     report = health_report(mart(), reference=date(2026, 12, 1))
