@@ -288,6 +288,8 @@
     renderModelTable(data.backtest_report, data.backtest_ranking);
     renderReconciliation(data.backtest_report);
     renderDrivers(data.global_model);
+    renderScenarios(data.scenarios);
+    renderRegimes(data.regimes);
     renderWarnings(data.warnings);
     renderSheets(data.sheets);
     document.getElementById("chart-badge").textContent =
@@ -675,6 +677,75 @@
     });
     note.textContent =
       "خطای هر روش روی همان بک‌تست، جدا برای کل و برگ‌ها. سهم‌های روش بالا‌به‌پایین فقط از دادهٔ پیش از اولین مبدأ آزمون محاسبه می‌شود.";
+  }
+
+  function renderScenarios(rows) {
+    const box = document.getElementById("scenarios");
+    const tbody = document.querySelector("#scenario-table tbody");
+    const note = document.getElementById("scenarios-note");
+    if (!box || !tbody || !note) return;
+    if (!rows || !rows.length) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    tbody.innerHTML = "";
+    rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      if (row.scenario === "base") tr.className = "is-total";
+      const share = row.delta_share;
+      const change =
+        share === null || share === undefined
+          ? "—"
+          : (share >= 0 ? "▲ " : "▼ ") + fa1.format(Math.abs(share) * 100) + "٪";
+      [row.label, formatNumber(row.total), change].forEach((value) => {
+        const td = document.createElement("td");
+        td.textContent = value;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    note.textContent =
+      "هر سناریو یک تغییر روی همان پیش‌بینی پایه است، نه پیش‌بینی جدید؛ پایه دست‌نخورده می‌ماند و شناسهٔ سناریو از مشخصاتش ساخته می‌شود.";
+  }
+
+  function renderRegimes(report) {
+    const box = document.getElementById("regimes");
+    const list = document.getElementById("regime-list");
+    const note = document.getElementById("regimes-note");
+    if (!box || !list || !note) return;
+    const entities = (report && report.entities) || [];
+    const shifted = entities.filter((e) => (e.changepoints || []).length);
+    if (!shifted.length) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    list.innerHTML = "";
+    shifted
+      .slice()
+      .sort((a, b) => a.days_since_changepoint - b.days_since_changepoint)
+      .forEach((entity) => {
+        const last = entity.changepoints[entity.changepoints.length - 1];
+        const relative = last.before_mean
+          ? last.shift / last.before_mean
+          : 0;
+        const li = document.createElement("li");
+        li.className = "regime " + (relative >= 0 ? "is-up" : "is-down");
+        li.textContent =
+          entity.entity_id +
+          " — آخرین تغییر سطح: " +
+          last.date +
+          " (" +
+          (relative >= 0 ? "+" : "−") +
+          fa1.format(Math.abs(relative) * 100) +
+          "٪) · " +
+          formatNumber(entity.days_since_changepoint) +
+          " روز پیش";
+        list.appendChild(li);
+      });
+    note.textContent =
+      "نقاط تغییر فقط از داده تا مبدأ پیش‌بینی محاسبه شده‌اند و توصیف رژیم فعلی‌اند، نه پیش‌بینی آینده.";
   }
 
   function renderWarnings(warnings) {    const list = document.getElementById("warnings");

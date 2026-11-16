@@ -17,5 +17,5 @@ pytest>=8.0
 # mlforecast>=0.13
 # lightgbm>=4.0
 # hierarchicalforecast>=0.4
-# ruptures>=1.1
+# ruptures>=1.1  # not needed: PELT is implemented in src/lifecycle/changepoints.py
 # shap>=0.45

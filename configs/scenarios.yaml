@@ -1,0 +1,44 @@
+# Scenario catalogue.
+#
+# A scenario is a pure transformation of an existing forecast, never a new
+# forecast. `factor` multiplies the entity's daily path, `add_daily` adds a flat
+# number of orders per day (used for a genuinely new venture). "ALL" applies to
+# every leaf. Every scenario keeps the hierarchy coherent by rebuilding parents.
+#
+# Keep the numbers business-readable: these are planning levers, not fudge
+# factors hidden in code.
+
+scenarios:
+  budget_up_20:
+    label: "بودجهٔ بازاریابی +۲۰٪"
+    description: "افزایش ۲۰٪ بودجهٔ رشد؛ اثر بر سفارش‌ها با همان کشش تاریخی، نه یک ضریب جادویی."
+    adjustments:
+      - entity_id: ALL
+        factor: 1.20
+        note: "افزایش بودجه در همهٔ ورتیکال‌ها"
+
+  merchant_up_10:
+    label: "مرچنت‌های فعال +۱۰٪"
+    description: "افزایش ۱۰٪ تعداد مرچنت فعال در همهٔ ورتیکال‌ها."
+    adjustments:
+      - entity_id: ALL
+        factor: 1.10
+        note: "رشد شبکهٔ پذیرندگان"
+
+  new_venture:
+    label: "ونچر جدید (+۵۰۰ سفارش در روز)"
+    description: "راه‌اندازی یک ونچر فرضی با ۵۰۰ سفارش در روز؛ فقط لایه‌های برگ را جابه‌جا نمی‌کند، کل را هم بازمی‌سازد."
+    adjustments:
+      - entity_id: ALL
+        factor: 1.00
+      - entity_id: TOTAL
+        add_daily: 500
+        note: "ظرفیت اولیهٔ ونچر جدید"
+
+  downside_10:
+    label: "سناریوی محتاطانه (−۱۰٪)"
+    description: "افت ۱۰٪ سفارش به‌عنوان کران پایین برنامه‌ریزی."
+    adjustments:
+      - entity_id: ALL
+        factor: 0.90
+        note: "کران پایین برنامه‌ریزی"

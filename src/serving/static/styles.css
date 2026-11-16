@@ -406,3 +406,7 @@ main {
   * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
   html { scroll-behavior: auto; }
 }
+.regime-list { list-style: none; margin: .4rem 0 0; padding: 0; display: grid; gap: .3rem; font-size: .8rem; }
+.regime { color: var(--text-muted); }
+.regime.is-up { color: var(--accent, #2f9e6e); }
+.regime.is-down { color: var(--warn, #c2703a); }

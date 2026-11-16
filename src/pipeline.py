@@ -7,6 +7,7 @@ CLI, so both always produce identical results.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -31,13 +32,36 @@ from src.features.engagement import availability as engagement_availability
 from src.models.baselines import BASELINES, moving_average
 from src.models.global_model import MODEL_NAME as GLOBAL_MODEL
 from src.models.global_model import fit_global, forecasters_from_model
+from src.lifecycle.regime import regime_report
 from src.reconciliation.reconcile import compare_methods, residuals_from_backtest
+from src.scenarios.scenario import apply_scenario, load_scenarios
+from src.scenarios.scenario import comparison as scenario_comparison
 from src.serving.gmv import combine_gmv, forecast_aov, has_gmv, validate_gmv
 from src.serving.service import RunContext, run_forecast
 
 
 class PipelineError(RuntimeError):
     """Raised when a run cannot produce a trustworthy forecast."""
+
+
+def _json_safe(value):
+    """Recursively replace NaN with None so the payload is strict JSON.
+
+    The base row of the scenario table has no delta (there is nothing to
+    compare against), and pandas renders that as NaN rather than None.
+    """
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if hasattr(value, "item") and not isinstance(value, (str, bytes)):
+        try:
+            return _json_safe(value.item())
+        except (AttributeError, ValueError):
+            return value
+    return value
 
 
 @dataclass
@@ -68,6 +92,8 @@ class PipelineResult:
     backtest_report: dict[str, Any] = field(default_factory=dict)
     global_model: dict[str, Any] = field(default_factory=dict)
     feature_availability: dict[str, Any] = field(default_factory=dict)
+    scenarios: list[dict[str, Any]] = field(default_factory=list)
+    regimes: dict[str, Any] = field(default_factory=dict)
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -95,6 +121,8 @@ class PipelineResult:
             "backtest_report": self.backtest_report,
             "global_model": self.global_model,
             "feature_availability": self.feature_availability,
+            "scenarios": _json_safe(self.scenarios),
+            "regimes": _json_safe(self.regimes),
             "warnings": self.warnings,
             "sheets": self.sheet_reports,
         }
@@ -370,15 +398,15 @@ def run_pipeline(
                 # data? Measured per level, because a method can win on the
                 # total and lose on the leaves.
                 try:
-                    comparison = compare_methods(
+                    reconciliation_table = compare_methods(
                         selected_rows,
                         master,
                         selected_rows,
                         historical=observed_rows,
                         residuals=residuals_from_backtest(selected_rows),
                     )
-                    if not comparison.empty:
-                        backtest_report["reconciliation"] = comparison.to_dict("records")
+                    if not reconciliation_table.empty:
+                        backtest_report["reconciliation"] = reconciliation_table.to_dict("records")
                 except Exception as exc:  # noqa: BLE001 - advisory, never blocks
                     warnings.append(f"Reconciliation comparison skipped: {exc}")
     if selected == "auto":
@@ -485,6 +513,29 @@ def run_pipeline(
             "Workbook has no GMV column, so AOV and GMV forecasts were not produced."
         )
 
+    # Scenarios are transformations of the forecast that already exists; the
+    # base frame is never touched, and a failure here must not cost the user
+    # the forecast itself.
+    scenario_table: list[dict[str, Any]] = []
+    scenario_frames: dict[str, pd.DataFrame] = {}
+    try:
+        catalogue = load_scenarios()
+        scenario_frames = {
+            name: apply_scenario(forecast, spec)
+            for name, spec in catalogue.items()
+        }
+        table = scenario_comparison(forecast, list(scenario_frames.values()))
+        scenario_table = table.to_dict("records")
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"Scenarios skipped: {exc}")
+
+    # Structural regime state, computed from observations only.
+    regimes: dict[str, Any] = {}
+    try:
+        regimes = regime_report(observed_rows)
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"Regime detection skipped: {exc}")
+
     return PipelineResult(
         run_id=context.forecast_run_id,
         source_file=loaded.source_file,
@@ -501,6 +552,8 @@ def run_pipeline(
         backtest_report=backtest_report,
         global_model=global_fit,
         feature_availability=feature_availability,
+        scenarios=scenario_table,
+        regimes=regimes,
         warnings=warnings,
         forecast=forecast,
         mart=mart,
