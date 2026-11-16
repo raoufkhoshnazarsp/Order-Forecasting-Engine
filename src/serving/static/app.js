@@ -286,6 +286,7 @@
     renderChart(data.chart, currentMetric);
     renderEntityTable(data.entities_table);
     renderModelTable(data.backtest_report, data.backtest_ranking);
+    renderReconciliation(data.backtest_report);
     renderDrivers(data.global_model);
     renderWarnings(data.warnings);
     renderSheets(data.sheets);
@@ -625,6 +626,55 @@
       li.append(name, bar, share);
       list.appendChild(li);
     });
+  }
+
+  const RECONCILIATION_LABELS = {
+    bottom_up: "پایین‌به‌بالا",
+    mint_ols: "MinT (OLS)",
+    mint_wls: "MinT (WLS)",
+    mint_shrunk: "MinT (Shrinkage)",
+    top_down: "بالا‌به‌پایین",
+  };
+
+  function renderReconciliation(report) {
+    const box = document.getElementById("reconciliation");
+    const tbody = document.querySelector("#reconciliation-table tbody");
+    const note = document.getElementById("reconciliation-note");
+    if (!box || !tbody || !note) return;
+    const rows = report && report.reconciliation;
+    if (!rows || !rows.length) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    tbody.innerHTML = "";
+
+    // Pivot method × level into one row per method.
+    const byMethod = new Map();
+    rows.forEach((row) => {
+      if (!byMethod.has(row.method)) byMethod.set(row.method, {});
+      byMethod.get(row.method)[row.level] = row.wape;
+    });
+    const ordered = [...byMethod.entries()].sort(
+      (a, b) => (a[1].LEAF ?? Infinity) - (b[1].LEAF ?? Infinity)
+    );
+    ordered.forEach(([method, levels], index) => {
+      const tr = document.createElement("tr");
+      if (index === 0) tr.className = "is-total";
+      const cells = [
+        RECONCILIATION_LABELS[method] || method,
+        levels.TOTAL === undefined ? "—" : fa1.format(levels.TOTAL * 100) + "٪",
+        levels.LEAF === undefined ? "—" : fa1.format(levels.LEAF * 100) + "٪",
+      ];
+      cells.forEach((value) => {
+        const td = document.createElement("td");
+        td.textContent = value;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    note.textContent =
+      "خطای هر روش روی همان بک‌تست، جدا برای کل و برگ‌ها. سهم‌های روش بالا‌به‌پایین فقط از دادهٔ پیش از اولین مبدأ آزمون محاسبه می‌شود.";
   }
 
   function renderWarnings(warnings) {    const list = document.getElementById("warnings");

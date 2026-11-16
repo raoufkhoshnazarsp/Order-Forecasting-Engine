@@ -31,6 +31,7 @@ from src.features.engagement import availability as engagement_availability
 from src.models.baselines import BASELINES, moving_average
 from src.models.global_model import MODEL_NAME as GLOBAL_MODEL
 from src.models.global_model import fit_global, forecasters_from_model
+from src.reconciliation.reconcile import compare_methods, residuals_from_backtest
 from src.serving.gmv import combine_gmv, forecast_aov, has_gmv, validate_gmv
 from src.serving.service import RunContext, run_forecast
 
@@ -365,6 +366,21 @@ def run_pipeline(
                 coverage = coverage_by(selected_rows, calibration, level=0.90)
                 backtest_report["coverage"] = coverage.to_dict("records")
                 backtest_report["calibration"] = calibration.as_dict()
+                # Which reconciliation method actually reduces error on this
+                # data? Measured per level, because a method can win on the
+                # total and lose on the leaves.
+                try:
+                    comparison = compare_methods(
+                        selected_rows,
+                        master,
+                        selected_rows,
+                        historical=observed_rows,
+                        residuals=residuals_from_backtest(selected_rows),
+                    )
+                    if not comparison.empty:
+                        backtest_report["reconciliation"] = comparison.to_dict("records")
+                except Exception as exc:  # noqa: BLE001 - advisory, never blocks
+                    warnings.append(f"Reconciliation comparison skipped: {exc}")
     if selected == "auto":
         selected = "seasonal_naive"
         warnings.append(

@@ -35,6 +35,48 @@ def bottom_up(base: pd.DataFrame, matrix: pd.DataFrame, value_col: str = "yhat")
     return _to_long(coherent, value_col)
 
 
+def _residual_covariance(
+    residuals: pd.DataFrame, columns: list[str], method: str
+) -> np.ndarray:
+    """Covariance of base-forecast residuals, optionally shrunk.
+
+    ``ols`` uses the identity (no residual information), ``wls`` keeps only the
+    diagonal, and ``shrunk`` applies the Schäfer–Strimmer shrinkage towards a
+    diagonal target. Shrinkage matters here because the hierarchy is small and
+    the residual covariance is estimated from few origins: an unshrunk sample
+    covariance is often singular or wildly over-fitted, which makes the MinT
+    projection worse than bottom-up.
+    """
+    n = len(columns)
+    if method not in {"ols", "wls", "shrunk"}:
+        raise ReconciliationError(f"Unknown MinTrace covariance method: {method}")
+    if method == "ols" or residuals is None or residuals.empty:
+        return np.eye(n)
+    R = residuals.reindex(columns=columns).dropna()
+    if R.empty or len(R) < 2:
+        return np.eye(n)
+    values = R.to_numpy(dtype="float64")
+    cov = np.atleast_2d(np.cov(values.T))
+    if method == "wls":
+        return np.diag(np.diag(cov))
+
+    # Schäfer–Strimmer: shrink the sample covariance towards its diagonal.
+    # The intensity is estimated from the variance of the off-diagonal
+    # correlations, clipped to [0, 1] so it can never invert the estimate.
+    sample = np.atleast_2d(np.cov(values.T, ddof=1))
+    var = np.diag(sample)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        corr = sample / np.sqrt(np.outer(var, var))
+    corr = np.nan_to_num(corr, nan=0.0, posinf=0.0, neginf=0.0)
+    off = corr[~np.eye(n, dtype=bool)]
+    if off.size == 0:
+        return np.diag(var)
+    intensity = float(np.clip(np.var(off) / max(np.mean(off**2), 1e-12), 0.0, 1.0))
+    shrunk = (1.0 - intensity) * sample
+    shrunk[np.diag_indices(n)] = var
+    return shrunk
+
+
 def mintrace(
     base: pd.DataFrame,
     matrix: pd.DataFrame,
@@ -46,7 +88,9 @@ def mintrace(
 
     ``residuals`` holds in-sample residuals with the same columns as the
     matrix rows (one row per observation). Without residuals, OLS MinT is
-    used (reasonably robust for small hierarchies).
+    used (reasonably robust for small hierarchies). ``method`` selects the
+    covariance estimate: ``ols`` (identity), ``wls`` (diagonal) or ``shrunk``
+    (Schäfer–Strimmer shrinkage, the safest choice on short histories).
     """
     wide = _wide(base, value_col).reindex(columns=matrix.index)
     if wide.isna().all(axis=1).any():
@@ -54,19 +98,8 @@ def mintrace(
         return bottom_up(base, matrix, value_col)
     S = matrix.to_numpy(dtype="float64")
     y = wide.to_numpy(dtype="float64")
-    n_leaf = S.shape[1]
 
-    if residuals is None or residuals.empty:
-        W = np.eye(S.shape[0])
-    else:
-        R = residuals.reindex(columns=matrix.index).dropna()
-        if R.empty:
-            W = np.eye(S.shape[0])
-        else:
-            cov = np.cov(R.to_numpy(dtype="float64").T)
-            W = np.atleast_2d(cov)
-            if method == "wls":
-                W = np.diag(np.diag(W))
+    W = _residual_covariance(residuals, list(matrix.index), method)
     # P = S (S' W^-1 S)^-1 S' W^-1
     try:
         winv = np.linalg.pinv(W)
@@ -77,6 +110,33 @@ def mintrace(
 
     reconciled = y @ P.T
     return _to_long(pd.DataFrame(reconciled, index=wide.index, columns=matrix.index), value_col)
+
+
+def residuals_from_backtest(
+    backtest_frame: pd.DataFrame, model_name: str | None = None
+) -> pd.DataFrame:
+    """Per-entity residuals (actual − yhat) shaped for MinTrace.
+
+    One row per (origin, target_date); columns are entity ids. Rows with a
+    missing actual are dropped rather than filled, so a gap never becomes a
+    zero residual that biases the covariance.
+    """
+    if backtest_frame is None or backtest_frame.empty:
+        return pd.DataFrame()
+    frame = backtest_frame
+    if model_name is not None:
+        frame = frame[frame["model_name"] == model_name]
+    if frame.empty:
+        return pd.DataFrame()
+    frame = frame.dropna(subset=["actual", "yhat"])
+    frame = frame.assign(residual=frame["actual"] - frame["yhat"])
+    wide = frame.pivot_table(
+        index=["forecast_origin", "target_date"],
+        columns="entity_id",
+        values="residual",
+        aggfunc="mean",
+    )
+    return wide.sort_index(axis=1)
 
 
 def top_down(
@@ -126,18 +186,98 @@ def reconcile(
     method: str = "bottom_up",
     historical: pd.DataFrame | None = None,
     value_col: str = "yhat",
+    residuals: pd.DataFrame | None = None,
+    as_of: object | None = None,
 ) -> pd.DataFrame:
-    matrix = build_summing_matrix(entity_master)
+    matrix = build_summing_matrix(entity_master, as_of=as_of)
     method = method.lower()
     if method == "bottom_up":
         return bottom_up(base, matrix, value_col)
-    if method == "mintrace":
-        return mintrace(base, matrix, value_col=value_col)
+    if method in {"mintrace", "mint_ols"}:
+        return mintrace(base, matrix, residuals, value_col=value_col, method="ols")
+    if method in {"mint_wls", "wls"}:
+        return mintrace(base, matrix, residuals, value_col=value_col, method="wls")
+    if method in {"mint_shrunk", "shrunk"}:
+        return mintrace(base, matrix, residuals, value_col=value_col, method="shrunk")
     if method == "top_down":
         if historical is None:
             raise ReconciliationError("top_down requires historical actuals")
         return top_down(base, matrix, historical, value_col=value_col)
     raise ReconciliationError(f"Unknown reconciliation method: {method}")
+
+
+RECONCILIATION_METHODS = ("bottom_up", "mint_ols", "mint_wls", "mint_shrunk", "top_down")
+
+
+def compare_methods(
+    base: pd.DataFrame,
+    entity_master: EntityMaster,
+    actuals: pd.DataFrame,
+    *,
+    historical: pd.DataFrame | None = None,
+    residuals: pd.DataFrame | None = None,
+    value_col: str = "yhat",
+    actual_col: str = "actual",
+    methods: tuple[str, ...] = RECONCILIATION_METHODS,
+) -> pd.DataFrame:
+    """WAPE of each reconciliation method, split by hierarchy level.
+
+    ``base`` holds base forecasts (one row per origin, target_date, entity),
+    ``actuals`` the matching observed values with the same keys. The point of
+    the comparison is that a method which looks good on the total can be worse
+    on the leaves, so the error is reported per level rather than pooled.
+    """
+    from src.evaluation.metrics import wape
+
+    if base is None or base.empty or actuals is None or actuals.empty:
+        return pd.DataFrame(columns=["method", "level", "wape", "points"])
+
+    keys = ["forecast_origin", "target_date", "entity_id"]
+    truth = actuals[keys + [actual_col]].copy()
+    truth["entity_id"] = truth["entity_id"].astype(object).map(str)
+    leaf_ids = set(entity_master.leaf_ids(active_only=False))
+    total_id = entity_master.total_id()
+
+    # Top-down allocates by historical share. If the history includes the test
+    # window, the shares are computed with data the forecast could not have
+    # seen, which flatters the method. Cut the history at the first origin.
+    if historical is not None and not historical.empty and "date" in historical.columns:
+        first_origin = pd.Timestamp(base["forecast_origin"].min())
+        historical = historical[pd.to_datetime(historical["date"]) < first_origin]
+
+    rows: list[dict] = []
+    for method in methods:
+        try:
+            reconciled = reconcile(
+                base,
+                entity_master,
+                method=method,
+                historical=historical,
+                value_col=value_col,
+                residuals=residuals,
+            )
+        except ReconciliationError:
+            continue
+        merged = reconciled.merge(truth, on=keys, how="inner")
+        if merged.empty:
+            continue
+        merged["entity_id"] = merged["entity_id"].astype(object).map(str)
+        levels = {
+            "TOTAL": merged[merged["entity_id"] == total_id],
+            "LEAF": merged[merged["entity_id"].isin(leaf_ids)],
+        }
+        for level, chunk in levels.items():
+            if chunk.empty:
+                continue
+            rows.append(
+                {
+                    "method": method,
+                    "level": level,
+                    "wape": float(wape(chunk[actual_col], chunk[value_col])),
+                    "points": int(len(chunk)),
+                }
+            )
+    return pd.DataFrame(rows)
 
 
 def coherent_round(
