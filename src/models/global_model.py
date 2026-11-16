@@ -103,6 +103,57 @@ class GlobalFit:
     def intercept(self) -> float:
         return float(self.weights[0]) if self.weights.size else 0.0
 
+    def drivers(self, row: np.ndarray, top: int = 8) -> dict:
+        """Which features moved *this* prediction, and in which direction.
+
+        ``row`` must already be standardised exactly as the model was trained
+        (numeric block scaled, dummies left as 0/1). For the ridge backend the
+        contribution is then the exact linear term ``weight * x`` — the same
+        quantity a linear SHAP explainer returns. For LightGBM the per-row
+        decomposition is not available without the shap package, so the global
+        feature importance is returned instead and the method says so. Neither
+        is causal.
+        """
+        from src.evaluation.drivers import build_driver_report, global_importance
+
+        if self.weights.size == 0 or not self.feature_names:
+            return build_driver_report(
+                np.zeros(0), [], method="none", note="مدل آموزش‌ندیده است."
+            ).as_dict()
+
+        if self.backend == "ridge":
+            values = np.asarray(row, dtype="float64")
+            if len(values) != len(self.feature_names):
+                raise ValueError("row must match the fitted feature count")
+            contributions = self.weights[1:] * values
+            report = build_driver_report(
+                contributions,
+                self.feature_names,
+                method="linear_contribution",
+                is_causal=False,
+                note="سهم خطی هر ویژگی در همین پیش‌بینی؛ رابطهٔ علّی نیست.",
+            )
+            return report.as_dict()
+
+        ranked = global_importance(self.weights, self.feature_names)[:top]
+        return {
+            "method": "global_importance",
+            "is_causal": False,
+            "drivers": [
+                {
+                    "feature": name,
+                    "contribution": float(value),
+                    "share": 0.0,
+                    "direction": "increase" if value >= 0 else "decrease",
+                }
+                for name, value in ranked
+            ],
+            "note": (
+                "اهمیت سراسری ویژگی در مدل درختی؛ سهم همین پیش‌بینی نیست "
+                "و رابطهٔ علّی هم نیست."
+            ),
+        }
+
 
 def _pivot(frame: pd.DataFrame) -> pd.DataFrame:
     """date x entity grid of observed orders.
@@ -546,6 +597,58 @@ class GlobalModel:
         return self
 
     # -------------------------------------------------------------- predict
+    def _row_matrix(
+        self,
+        pivot: pd.DataFrame,
+        column: int,
+        step: int,
+        calendar: pd.DataFrame,
+        target_pos: int,
+        block: int,
+    ) -> np.ndarray:
+        """The standardised design row for one entity and one horizon step."""
+        fit = self.fit_result
+        features = _row_features(pivot, column, step, calendar, target_pos=target_pos)
+        matrix, _ = _design(
+            [features],
+            [block],
+            len(fit.entity_ids),
+            [int(calendar.iat[target_pos, 0])],
+        )
+        matrix[:, : len(_NUMERIC)] = (matrix[:, : len(_NUMERIC)] - fit.mean) / fit.scale
+        return matrix
+
+    def explain(
+        self, frame: pd.DataFrame, *, entity_id: str | None = None, step: int = 1
+    ) -> dict:
+        """Driver report for one entity's forecast at one horizon step.
+
+        Defaults to the first entity and D+1. The report is model attribution,
+        not causality, and says so in its ``note``.
+        """
+        if self.fit_result is None:
+            raise RuntimeError("مدل سراسری هنوز آموزش ندیده است.")
+        fit = self.fit_result
+        pivot = _pivot(frame)
+        if pivot.empty:
+            raise ValueError("داده‌ای برای توضیح وجود ندارد.")
+        columns = [str(c) for c in pivot.columns]
+        if entity_id is None:
+            entity_id = columns[0]
+        if entity_id not in columns:
+            raise ValueError(f"موجودیت {entity_id} در داده نیست.")
+        column = columns.index(entity_id)
+        block = {name: j for j, name in enumerate(fit.entity_ids)}.get(entity_id, 0)
+        calendar = _calendar_frame(
+            pd.date_range(start=pivot.index[0], periods=len(pivot) + step, freq="D")
+        )
+        target_pos = len(pivot) - 1 + step
+        matrix = self._row_matrix(pivot, column, step, calendar, target_pos, block)
+        report = fit.drivers(matrix[0])
+        report["entity_id"] = entity_id
+        report["horizon"] = int(step)
+        return report
+
     def predict(
         self, frame: pd.DataFrame, *, horizon: int | None = None
     ) -> dict[str, np.ndarray]:
@@ -583,18 +686,9 @@ class GlobalModel:
             path = np.zeros(horizon, dtype="float64")
             for step in range(1, horizon + 1):
                 target_pos = origin_index + step
-                features = _row_features(
-                    pivot, e, step, calendar, target_pos=target_pos
+                matrix = self._row_matrix(
+                    pivot, e, step, calendar, target_pos, block
                 )
-                matrix, _ = _design(
-                    [features],
-                    [block],
-                    len(fit.entity_ids),
-                    [int(calendar.iat[target_pos, 0])],
-                )
-                matrix[:, : len(_NUMERIC)] = (
-                    matrix[:, : len(_NUMERIC)] - fit.mean
-                ) / fit.scale
                 value = float(
                     _predict_matrix(
                         matrix, fit.weights, fit.backend, self._booster
@@ -613,16 +707,10 @@ def fit_global(frame: pd.DataFrame, *, horizon: int, config: GlobalConfig | None
     return GlobalModel(config or GlobalConfig(horizon=horizon)).fit(frame, horizon=horizon)
 
 
-def global_forecasters(
-    frame: pd.DataFrame, *, horizon: int, config: GlobalConfig | None = None
+def forecasters_from_model(
+    model: GlobalModel, frame: pd.DataFrame, *, horizon: int
 ) -> dict[str, object]:
-    """Adapters so the global model plugs into the existing serving/backtest paths.
-
-    The single fitted model is shared; each callable only slices its own
-    entity's path, which keeps one training run per origin instead of one per
-    entity.
-    """
-    model = fit_global(frame, horizon=horizon, config=config)
+    """Per-entity callables over one already-fitted model."""
     paths = model.predict(frame, horizon=horizon)
 
     def make(entity_id: str):
@@ -636,3 +724,16 @@ def global_forecasters(
         return forecaster
 
     return {entity: make(entity) for entity in paths}
+
+
+def global_forecasters(
+    frame: pd.DataFrame, *, horizon: int, config: GlobalConfig | None = None
+) -> dict[str, object]:
+    """Adapters so the global model plugs into the existing serving/backtest paths.
+
+    The single fitted model is shared; each callable only slices its own
+    entity's path, which keeps one training run per origin instead of one per
+    entity.
+    """
+    model = fit_global(frame, horizon=horizon, config=config)
+    return forecasters_from_model(model, frame, horizon=horizon)

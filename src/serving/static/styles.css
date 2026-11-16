@@ -370,6 +370,14 @@ main {
 .warning-list li { margin-bottom: .3rem; }
 .warning-list li.is-warn { color: var(--warn); }
 .sheet-list code { font-family: var(--mono); font-size: .76rem; color: var(--text-soft); }
+.driver-list { list-style: none; margin: .4rem 0 0; padding: 0; display: grid; gap: .35rem; }
+.driver { display: grid; grid-template-columns: 9.5rem 1fr 3rem; align-items: center; gap: .5rem; font-size: .8rem; }
+.driver-name { color: var(--text-soft); }
+.driver-bar { height: .45rem; border-radius: 999px; background: var(--surface-2, rgba(127,127,127,.15)); overflow: hidden; }
+.driver-bar span { display: block; height: 100%; border-radius: 999px; }
+.driver.is-up .driver-bar span { background: var(--accent, #2f9e6e); }
+.driver.is-down .driver-bar span { background: var(--warn, #c2703a); }
+.driver-share { text-align: end; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 .empty { color: var(--text-muted); font-size: .82rem; padding: .4rem 0; }
 

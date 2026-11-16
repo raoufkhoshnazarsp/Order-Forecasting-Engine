@@ -286,6 +286,7 @@
     renderChart(data.chart, currentMetric);
     renderEntityTable(data.entities_table);
     renderModelTable(data.backtest_report, data.backtest_ranking);
+    renderDrivers(data.global_model);
     renderWarnings(data.warnings);
     renderSheets(data.sheets);
     document.getElementById("chart-badge").textContent =
@@ -563,8 +564,70 @@
     if (report && report.note) note.textContent = report.note;
   }
 
-  function renderWarnings(warnings) {
-    const list = document.getElementById("warnings");
+  const FEATURE_LABELS = {
+    h: "افق پیش‌بینی",
+    log_last: "سطح آخرین روز",
+    log_mean7: "میانگین ۷ روز",
+    log_mean28: "میانگین ۲۸ روز",
+    log_lag7: "مقدار ۷ روز پیش",
+    log_lag14: "مقدار ۱۴ روز پیش",
+    log_lag28: "مقدار ۲۸ روز پیش",
+    trend_7_28: "روند هفتگی نسبت به ماه",
+    level_vs_lag7: "سطح امروز نسبت به هفته پیش",
+    log_share: "سهم این موجودیت از کل",
+    weekday_ratio: "الگوی روز هفته",
+    month_sin: "فصل سال",
+    month_cos: "فصل سال",
+    month_end_distance: "فاصله از پایان ماه",
+  };
+
+  function featureLabel(name) {
+    if (FEATURE_LABELS[name]) return FEATURE_LABELS[name];
+    if (name.startsWith("wd_")) return "روز هفته " + fa.format(Number(name.slice(3)) + 1);
+    if (name.startsWith("entity_")) return "اثر ثابت موجودیت";
+    return name;
+  }
+
+  function renderDrivers(globalModel) {
+    const box = document.getElementById("drivers");
+    const list = document.getElementById("driver-list");
+    const note = document.getElementById("drivers-note");
+    if (!box || !list || !note) return;
+    const report = globalModel && globalModel.drivers;
+    if (!report || !report.drivers || !report.drivers.length) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    list.innerHTML = "";
+    // Attribution, not causality: the wording must never say "cause".
+    const method = report.method === "global_importance"
+      ? "اهمیت سراسری ویژگی در مدل (نه سهم همین پیش‌بینی)"
+      : "سهم خطی هر ویژگی در همین پیش‌بینی";
+    note.textContent =
+      method + " · این اعداد «تخصیص مدل» هستند، نه رابطهٔ علّی." +
+      (report.note ? " " + report.note : "");
+
+    report.drivers.forEach((driver) => {
+      const li = document.createElement("li");
+      li.className = "driver " + (driver.direction === "decrease" ? "is-down" : "is-up");
+      const name = document.createElement("span");
+      name.className = "driver-name";
+      name.textContent = featureLabel(driver.feature);
+      const bar = document.createElement("span");
+      bar.className = "driver-bar";
+      const fill = document.createElement("span");
+      fill.style.width = Math.max(2, Math.round(driver.share * 100)) + "%";
+      bar.appendChild(fill);
+      const share = document.createElement("span");
+      share.className = "driver-share";
+      share.textContent = fa1.format(driver.share * 100) + "٪";
+      li.append(name, bar, share);
+      list.appendChild(li);
+    });
+  }
+
+  function renderWarnings(warnings) {    const list = document.getElementById("warnings");
     list.innerHTML = "";
     if (!warnings || !warnings.length) {
       list.innerHTML = '<li class="empty">هیچ هشداری ثبت نشد.</li>';

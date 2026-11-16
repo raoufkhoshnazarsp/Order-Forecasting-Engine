@@ -24,12 +24,13 @@ from src.evaluation.backtest import (
     horizon_accuracy,
 )
 from src.evaluation.metrics import bias, wape
+from src.evaluation.conformal import calibrate, coverage_by
 from src.evaluation.report import build_backtest_report
 from src.ingestion.excel import ExcelLoadResult, load_workbook
 from src.features.engagement import availability as engagement_availability
 from src.models.baselines import BASELINES, moving_average
 from src.models.global_model import MODEL_NAME as GLOBAL_MODEL
-from src.models.global_model import global_forecasters
+from src.models.global_model import fit_global, forecasters_from_model
 from src.serving.gmv import combine_gmv, forecast_aov, has_gmv, validate_gmv
 from src.serving.service import RunContext, run_forecast
 
@@ -303,6 +304,7 @@ def run_pipeline(
     ranking: list[dict[str, Any]] = []
     backtest_report: dict[str, Any] = {}
     global_fit: dict[str, Any] = {}
+    calibration = None
     selected = model
     bt_config = BacktestConfig(
         horizon=min(horizon, 30), step=backtest_step, min_train_days=min_train_days
@@ -354,6 +356,15 @@ def run_pipeline(
                 bt, horizon=min(horizon, 30)
             ).as_dict()
             global_fit = _global_diagnostics(global_bt)
+            # Calibrate the band on the selected model's own residuals. This
+            # must happen after selection, so the band describes the model the
+            # user will actually see.
+            selected_rows = bt[bt["model_name"] == selected]
+            if not selected_rows.empty:
+                calibration = calibrate(selected_rows)
+                coverage = coverage_by(selected_rows, calibration, level=0.90)
+                backtest_report["coverage"] = coverage.to_dict("records")
+                backtest_report["calibration"] = calibration.as_dict()
     if selected == "auto":
         selected = "seasonal_naive"
         warnings.append(
@@ -375,16 +386,29 @@ def run_pipeline(
         data_snapshot_id=snapshot_id,
     )
     if selected == GLOBAL_MODEL:
-        entity_forecasters = global_forecasters(observed_rows, horizon=horizon)
+        model_fit = fit_global(observed_rows, horizon=horizon)
+        entity_forecasters = forecasters_from_model(
+            model_fit, observed_rows, horizon=horizon
+        )
         forecast = run_forecast(
             observed_rows, master, {},
             context=context, horizon=horizon,
             entity_forecasters=entity_forecasters,
+            calibration=calibration,
         )
+        # Explain the business total at D+1: that is the number the user acts
+        # on. Attribution only — the report says so explicitly.
+        try:
+            global_fit["drivers"] = model_fit.explain(
+                observed_rows, entity_id=master.total_id(), step=1
+            )
+        except Exception as exc:  # noqa: BLE001 - explanation never blocks a forecast
+            warnings.append(f"Model drivers unavailable: {exc}")
     else:
         forecast = run_forecast(
             observed_rows, master, {selected: BASELINES[selected]},
             context=context, horizon=horizon,
+            calibration=calibration,
         )
 
     total_rows = forecast[forecast["entity_id"] == master.total_id()].set_index("horizon")

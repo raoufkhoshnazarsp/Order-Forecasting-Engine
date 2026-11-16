@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from src.data_mart.entity_master import EntityMaster
+from src.evaluation.conformal import ConformalCalibration
 from src.models.baselines import ForecastResult
 from src.reconciliation.reconcile import coherent_round, reconcile
 
@@ -65,6 +66,19 @@ def residual_sigma(history: pd.Series, horizon: int) -> np.ndarray:
     return sigma1 * np.sqrt(np.arange(1, horizon + 1))
 
 
+def _calibrated_bounds(
+    values: np.ndarray, calibration: "ConformalCalibration", level: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-step calibrated bounds: the width depends on the horizon bucket."""
+    lower = np.empty_like(values)
+    upper = np.empty_like(values)
+    for i, value in enumerate(values):
+        width = calibration.half_width(i + 1, level)
+        lower[i] = max(value * (1.0 - width), 0.0)
+        upper[i] = value * (1.0 + width)
+    return lower, upper
+
+
 def forecast_entity(
     history: pd.Series,
     forecaster,
@@ -87,6 +101,7 @@ def run_forecast(
     z_80: float = 1.2816,
     z_90: float = 1.6449,
     entity_forecasters: Mapping[str, Mapping[str, object]] | None = None,
+    calibration: "ConformalCalibration | None" = None,
 ) -> pd.DataFrame:
     """Produce a reconciled, coherent daily forecast path for D+1..D+horizon.
 
@@ -94,6 +109,10 @@ def run_forecast(
     entities (the global model): each entity has its own slice of one shared
     fit, so it cannot be expressed as a single callable. When it is given, the
     entity's own forecasters take precedence over ``forecasters``.
+
+    ``calibration`` replaces the heuristic ``z * sigma`` band with empirical
+    half-widths measured on the backtest. When it is absent the old heuristic
+    is used, so a run without a backtest still produces a band.
     """
     observed = mart[mart["quality_flag"].eq("OBSERVED") & mart["successful_orders"].notna()]
     observed = observed[observed["entity_type"].isin(["VERTICAL", "VENTURE"])]
@@ -128,6 +147,14 @@ def run_forecast(
             values = np.clip(np.asarray(result.values, dtype="float64"), 0, None)
             origin_ts = pd.Timestamp(context.forecast_origin)
             steps = np.arange(1, horizon + 1)
+            if calibration is not None:
+                lower_80, upper_80 = _calibrated_bounds(values, calibration, 0.80)
+                lower_90, upper_90 = _calibrated_bounds(values, calibration, 0.90)
+            else:
+                lower_80 = np.clip(values - z_80 * sigma, 0, None)
+                upper_80 = values + z_80 * sigma
+                lower_90 = np.clip(values - z_90 * sigma, 0, None)
+                upper_90 = values + z_90 * sigma
             rows.append(
                 pd.DataFrame(
                     {
@@ -140,10 +167,10 @@ def run_forecast(
                         "horizon": steps,
                         "model_name": name,
                         "yhat": values,
-                        "lower_80": np.clip(values - z_80 * sigma, 0, None),
-                        "upper_80": values + z_80 * sigma,
-                        "lower_90": np.clip(values - z_90 * sigma, 0, None),
-                        "upper_90": values + z_90 * sigma,
+                        "lower_80": lower_80,
+                        "upper_80": upper_80,
+                        "lower_90": lower_90,
+                        "upper_90": upper_90,
                     }
                 )
             )
