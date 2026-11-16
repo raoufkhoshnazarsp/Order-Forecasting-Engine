@@ -17,6 +17,12 @@ REQUIRED_DECISIONS = ("exclude_deleted", "date_field", "reversal_policy")
 
 ALLOWED_DATE_FIELDS = ("registered_date", "created_date")
 
+ALLOWED_REVERSAL_POLICIES = ("keep", "exclude")
+
+# Statuses that mean an order was reversed or refunded. Used only when the
+# business chose ``reversal_policy: exclude``.
+DEFAULT_REVERSAL_STATUSES = ("REVERSED", "REFUNDED", "REFUND", "REVERSAL")
+
 # Column whitelist: identifiers interpolated into SQL must come from here.
 ALLOWED_COLUMNS = frozenset(
     {
@@ -57,6 +63,7 @@ class TargetDefinition:
     payment_methods: Any
     reversal_policy: str | None
     organic_field: str = "voucher_discount_amount"
+    reversal_statuses: tuple[str, ...] = DEFAULT_REVERSAL_STATUSES
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "TargetDefinition":
@@ -79,6 +86,20 @@ class TargetDefinition:
                 f"date_field {date_field!r} is not an approved column"
             )
 
+        reversal_policy = td.get("reversal_policy")
+        if (
+            reversal_policy is not None
+            and str(reversal_policy).lower() not in ALLOWED_REVERSAL_POLICIES
+        ):
+            raise TargetDefinitionError(
+                f"reversal_policy {reversal_policy!r} must be one of "
+                f"{ALLOWED_REVERSAL_POLICIES}"
+            )
+        reversal_statuses = tuple(
+            str(s).upper()
+            for s in (td.get("reversal_statuses") or DEFAULT_REVERSAL_STATUSES)
+        )
+
         organic = td.get("organic_rule") or {}
         organic_field = organic.get("field", "voucher_discount_amount")
         if organic_field not in ALLOWED_COLUMNS:
@@ -92,8 +113,11 @@ class TargetDefinition:
             exclude_deleted=td.get("exclude_deleted"),
             date_field=date_field,
             payment_methods=td.get("payment_methods", "all"),
-            reversal_policy=td.get("reversal_policy"),
+            reversal_policy=(
+                str(reversal_policy).lower() if reversal_policy is not None else None
+            ),
             organic_field=organic_field,
+            reversal_statuses=reversal_statuses,
         )
 
     # -- guards ---------------------------------------------------------
@@ -130,6 +154,9 @@ class TargetDefinition:
             predicates.append(f"{alias}.merchant_type = '{self.merchant_type}'")
         if self.exclude_deleted is True:
             predicates.append(f"{alias}.deleted_at IS NULL")
+        if self.reversal_policy == "exclude" and self.reversal_statuses:
+            values = ", ".join(f"'{s}'" for s in self.reversal_statuses)
+            predicates.append(f"{alias}.status NOT IN ({values})")
         if isinstance(self.payment_methods, Sequence) and not isinstance(
             self.payment_methods, str
         ):

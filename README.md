@@ -318,7 +318,7 @@ curl -X POST http://localhost:8000/api/delivery \
 configs/
   base.yaml               تنظیمات کلی، افق‌ها، مدل‌ها
   excel.yaml              قرارداد ورودی اکسل و نگاشت ستون‌ها
-  target.yaml             تعریف تارگت (DRAFT تا تأیید کسب‌وکار)
+  target.yaml             تعریف تارگت (APPROVED — تصمیم‌های کسب‌وکار ۲۰۲۶-۱۱-۱۶)
   hierarchy.yaml          نگاشت vertical → شناسهٔ ثابت
   entity_master.csv       سلسله‌مراتب پیش‌فرض
   features.yaml           پیکربندی ویژگی‌ها و دسترس‌پذیری
@@ -472,7 +472,7 @@ TOTAL = Σ(VERTICAL) + Σ(VENTURE)
 | --- | --- |
 | `configs/excel.yaml` | ساختارهای پشتیبانی‌شده، نام‌های ستون، وضعیت‌های موفق |
 | `configs/hierarchy.yaml` | نگاشت `vertical` منبع → شناسهٔ ثابت (`H&B` → `H_B`) |
-| `configs/target.yaml` | تعریف تارگت؛ تا تأیید کسب‌وکار `DRAFT` است |
+| `configs/target.yaml` | تعریف تارگت؛ `APPROVED` با سه تصمیم تأییدشده (حذف soft-deleted، `registered_date`، حذف برگشت‌خورده) |
 | `configs/base.yaml` | افق‌ها، مدل‌ها، روش ارزیابی |
 
 هیچ اعتبارنامه‌ای در YAML ذخیره نمی‌شود. مسیر ClickHouse اختیاری و کاملاً جدا از مسیر اکسل است (متغیرهای `CLICKHOUSE_*` در `.env`).

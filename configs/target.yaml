@@ -2,15 +2,19 @@
 # null == NOT YET APPROVED BY BUSINESS. Engine must refuse to run
 # production extraction while any required field is null.
 target_definition:
-  version: "target_v0_draft"
-  definition_status: DRAFT   # DRAFT | APPROVED
+  version: "target_v1_approved"
+  definition_status: APPROVED   # DRAFT | APPROVED
 
   order_status: SETTLE
   merchant_type: ONLINE
-  exclude_deleted: null     # true | false — pending approval
-  date_field: null          # registered_date | created_date — pending approval
+  exclude_deleted: true     # business decision 2026-11-16: drop soft-deleted orders
+  date_field: registered_date  # business decision 2026-11-16
   payment_methods: all      # all | [<list>]
-  reversal_policy: null     # keep | exclude — pending approval
+  reversal_policy: exclude  # business decision 2026-11-16: reversed/refunded orders leave history
+  # Statuses that mean "this order was reversed or refunded". With
+  # order_status = SETTLE these are already excluded, but the predicate is
+  # emitted explicitly so the decision is visible in the generated SQL.
+  reversal_statuses: [REVERSED, REFUNDED, REFUND, REVERSAL]
 
   organic_rule:
     field: voucher_discount_amount

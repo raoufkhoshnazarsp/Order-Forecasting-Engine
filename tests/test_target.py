@@ -81,6 +81,47 @@ def test_scope_filters_never_include_commercial_exclusions():
     assert "in_store" not in rendered
 
 
+def test_approved_decisions_render_into_the_query():
+    """The three business decisions must be visible in the generated SQL."""
+    target = TargetDefinition.from_config(
+        draft_config(
+            definition_status="APPROVED",
+            exclude_deleted=True,
+            date_field="registered_date",
+            reversal_policy="exclude",
+        )
+    )
+    assert target.is_production_ready()
+    predicates = target.scope_predicates()
+    assert "O.deleted_at IS NULL" in predicates
+    assert any("O.status NOT IN (" in p for p in predicates)
+    assert target.date_field_for_draft() == "registered_date"
+
+
+def test_reversal_keep_emits_no_reversal_predicate():
+    target = TargetDefinition.from_config(
+        draft_config(reversal_policy="keep", exclude_deleted=False)
+    )
+    assert not any("NOT IN" in p for p in target.scope_predicates())
+
+
+def test_unknown_reversal_policy_is_rejected():
+    with pytest.raises(TargetDefinitionError):
+        TargetDefinition.from_config(draft_config(reversal_policy="maybe"))
+
+
+def test_shipped_config_is_approved_and_production_ready():
+    """The committed target.yaml must carry the approved business decisions."""
+    from src import config
+
+    target = TargetDefinition.from_config(config.load_yaml("target.yaml"))
+    assert target.status == "APPROVED"
+    assert target.is_production_ready()
+    assert target.exclude_deleted is True
+    assert target.date_field == "registered_date"
+    assert target.reversal_policy == "exclude"
+
+
 def test_vertical_list_rendering_escapes_quotes():
     assert render_vertical_list(["DIGITAL", "H&B"]) == "'DIGITAL', 'H&B'"
     with pytest.raises(TargetDefinitionError):
