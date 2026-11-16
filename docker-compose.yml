@@ -38,3 +38,16 @@ services:
     volumes:
       - ./docs:/app/docs:ro
     restart: unless-stopped
+    # The image healthcheck probes 8000; this container serves 8001, so without
+    # its own check it would sit at "unhealthy" forever and make the deploy
+    # check meaningless.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8001/',timeout=3)"
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
