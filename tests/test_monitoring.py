@@ -189,6 +189,18 @@ def test_job_with_only_failures_is_failing(monkeypatch, tmp_path):
     assert job_health()["state"] == "failing"
 
 
+def test_a_run_that_completed_with_bad_data_proves_the_scheduler_works(
+    monkeypatch, tmp_path
+):
+    """A dead scheduler and stale data need different fixes; do not conflate them."""
+    monkeypatch.setenv("FORECAST_STATE_DIR", str(tmp_path))
+    path = tmp_path / "monitoring" / "job_runs.json"
+    record_job_run({"status": "unhealthy", "health": "error"}, path=path)
+    result = job_health()
+    assert result["state"] == "ok"
+    assert result["last_status"] == "unhealthy"
+
+
 # ----------------------------------------------------------------- report
 def test_health_report_is_ok_when_everything_is_in_order(monkeypatch, tmp_path):
     monkeypatch.setenv("FORECAST_STATE_DIR", str(tmp_path))

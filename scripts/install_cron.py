@@ -16,8 +16,19 @@ from pathlib import Path
 
 MARKER = "# bnpl-forecast-daily"
 
-DEFAULT_WORKBOOK = "/opt/order-forecasting-engine/uploads/data-model.xlsx"
+DEFAULT_WORKBOOK = "/app/artifacts/web_runs/20261115_182059_data-model.xlsx"
 DEFAULT_LOG = "/opt/order-forecasting-engine/artifacts/scheduled/cron.log"
+
+
+def host_path(workbook: str, project_dir: str) -> Path:
+    """Map the container path in the cron line back to the host path.
+
+    The line runs inside the container, where the checkout is mounted at /app;
+    the check has to look where cron's *host* can see the file.
+    """
+    if workbook.startswith("/app/"):
+        return Path(project_dir) / workbook[len("/app/"):]
+    return Path(workbook)
 
 
 def build_line(
@@ -34,12 +45,15 @@ def build_line(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--workbook", default=DEFAULT_WORKBOOK)
+    parser.add_argument("--workbook", default=DEFAULT_WORKBOOK,
+                        help="path inside the container (cron runs via docker compose exec)")
     parser.add_argument("--project-dir", default="/opt/order-forecasting-engine")
     parser.add_argument("--log", default=DEFAULT_LOG)
     parser.add_argument("--hour", type=int, default=6, help="UTC hour (06:00 UTC = 09:30 Tehran)")
     parser.add_argument("--minute", type=int, default=30)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--force", action="store_true",
+                        help="install even if the workbook is not visible from the host")
     args = parser.parse_args(argv)
 
     line = build_line(
@@ -53,6 +67,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         print(line)
         return 0
+
+    # A cron line pointing at a workbook that does not exist fails silently at
+    # 06:30 every morning. Refuse rather than install a job that cannot work.
+    if not args.force and not host_path(args.workbook, args.project_dir).exists():
+        print(
+            f"workbook not found: {args.workbook}\n"
+            "Pass the real path, or --force if it is mounted only inside the "
+            "container.",
+            file=sys.stderr,
+        )
+        return 1
 
     try:
         current = subprocess.run(

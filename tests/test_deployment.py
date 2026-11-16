@@ -46,6 +46,25 @@ def test_cron_dry_run_prints_the_line_and_changes_nothing(tmp_path):
     assert MARKER in result.stdout
 
 
+def test_cron_refuses_a_workbook_that_is_not_there(tmp_path):
+    """A cron line pointing at a missing file fails silently every morning."""
+    result = subprocess.run(
+        [sys.executable, "scripts/install_cron.py",
+         "--workbook", "/app/artifacts/web_runs/missing.xlsx",
+         "--project-dir", str(tmp_path)],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 1
+    assert "not found" in result.stderr
+
+
+def test_cron_maps_the_container_path_to_the_host_before_checking(tmp_path):
+    from scripts.install_cron import host_path
+
+    assert host_path("/app/artifacts/w.xlsx", "/opt/app") == Path("/opt/app/artifacts/w.xlsx")
+    assert host_path("/tmp/w.xlsx", "/opt/app") == Path("/tmp/w.xlsx")
+
+
 def test_scheduled_run_reports_a_failure_with_exit_code_one(monkeypatch, tmp_path):
     monkeypatch.setenv("FORECAST_STATE_DIR", str(tmp_path / "state"))
     import scripts.scheduled_run as scheduled

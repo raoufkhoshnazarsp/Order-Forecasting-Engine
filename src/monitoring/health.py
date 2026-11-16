@@ -262,30 +262,41 @@ def record_job_run(payload: dict, *, path: Path | None = None) -> dict:
 
 
 def job_health(*, now: datetime | None = None, max_age_hours: int = JOB_MAX_AGE_HOURS) -> dict:
-    """Age of the newest successful run; a stopped job is a found bug."""
+    """Did the job run, and how long ago?
+
+    Two different questions live here and they must not be collapsed: "did the
+    scheduled job run" (age) and "was its result good" (``last_status``). A run
+    that completed but found stale data still proves the scheduler works;
+    counting only ``success`` would report it as a job that never ran, and the
+    fix for a dead scheduler is not the fix for bad data.
+    """
     path = job_state_path()
     try:
         history = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return {"last_success": None, "age_hours": None, "state": "unknown"}
+        return {"last_completed": None, "age_hours": None, "state": "unknown"}
     if not isinstance(history, list) or not history:
-        return {"last_success": None, "age_hours": None, "state": "unknown"}
+        return {"last_completed": None, "age_hours": None, "state": "unknown"}
 
-    successes = [entry for entry in history if entry.get("status") == "success"]
-    if not successes:
-        return {"last_success": None, "age_hours": None, "state": "failing"}
-    latest = successes[-1]
+    completed = [
+        entry
+        for entry in history
+        if entry.get("status") in {"success", "unhealthy"}
+    ]
+    if not completed:
+        return {"last_completed": None, "age_hours": None, "state": "failing"}
+    latest = completed[-1]
     try:
         stamp = datetime.fromisoformat(str(latest["at"]))
     except (KeyError, ValueError):
-        return {"last_success": None, "age_hours": None, "state": "unknown"}
+        return {"last_completed": None, "age_hours": None, "state": "unknown"}
     current = now or datetime.now(stamp.tzinfo)
     age = (current - stamp).total_seconds() / 3600.0
-    state = "ok" if age <= max_age_hours else "late"
     return {
-        "last_success": str(latest["at"]),
+        "last_completed": str(latest["at"]),
+        "last_status": str(latest.get("status")),
         "age_hours": float(round(age, 1)),
-        "state": state,
+        "state": "ok" if age <= max_age_hours else "late",
         "runs_logged": len(history),
     }
 
@@ -370,12 +381,16 @@ def health_report(
             Alert(
                 "warn",
                 "job_late",
-                f"آخرین اجرای موفق {job['age_hours']} ساعت پیش بوده است.",
+                f"آخرین اجرای زمان‌بندی‌شده {job['age_hours']} ساعت پیش بوده است.",
             )
         )
     elif job["state"] == "failing":
         alerts.append(
-            Alert("error", "job_failing", "هیچ اجرای موفقی در تاریخچهٔ کار ثبت نشده است.")
+            Alert(
+                "error",
+                "job_failing",
+                "هیچ اجرای کاملی در تاریخچهٔ کار ثبت نشده است؛ زمان‌بندی خراب است، نه داده.",
+            )
         )
 
     # "Unknown" is not "fine". A dashboard that says ok before anything has ever
