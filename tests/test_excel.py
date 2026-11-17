@@ -11,11 +11,14 @@ from src.ingestion.excel import (
     ExcelInputError,
     build_header_lookup,
     detect_layout,
+    load_category_facts,
     load_excel_config,
     load_workbook,
     map_columns,
+    map_sheet,
     normalize_text,
     parse_dates,
+    payment_method_shares,
     write_template,
 )
 from src.pipeline import PipelineError, entity_master_for_workbook, run_pipeline
@@ -67,6 +70,32 @@ def test_layout_detection_prefers_required_columns():
     assert detect_layout(mapped, config) == "raw_orders"
     mapped, _ = map_columns(["date", "something"], lookup)
     assert detect_layout(mapped, config) is None
+
+
+def test_a_metrics_sheet_naming_the_count_column_order_is_read_as_counts():
+    """The business export writes ``order`` (singular) for the order count.
+
+    ``order`` also maps to the order *id* in a raw-order sheet. The two never
+    appear together, so a sheet carrying GMV with no count column must be read
+    as a metrics sheet instead of being rejected as "no known layout".
+    """
+    config = load_excel_config()
+    lookup = build_header_lookup(config)
+    mapped, _ignored, layout = map_sheet(
+        ["date", "vertical", "category", "payment Method", "order", "GMV"],
+        lookup,
+        config,
+    )
+    assert layout == "daily_metrics"
+    assert mapped["successful_orders"] == "order"
+    assert "order_id" not in mapped
+
+    # A real raw-order sheet keeps ``order`` as the id and is still detected.
+    mapped, _ignored, layout = map_sheet(
+        ["date", "order", "venture_id"], lookup, config
+    )
+    assert layout == "raw_orders"
+    assert mapped["order_id"] == "order"
 
 
 def test_parse_dates_handles_persian_digits():

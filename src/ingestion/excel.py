@@ -123,6 +123,29 @@ def detect_layout(mapped: dict[str, str], excel_config: dict[str, Any]) -> str |
     return None
 
 
+def map_sheet(
+    headers: Iterable[Any], lookup: dict[str, str], excel_config: dict[str, Any]
+) -> tuple[dict[str, str], list[str], str | None]:
+    """Map a sheet's headers and detect its layout.
+
+    The business export names the order *count* column ``order`` (singular),
+    but the same word is the order *id* in a raw-order export. The two never
+    appear together, so a sheet that resolved ``order`` to ``order_id`` and
+    still carries GMV with no count column is a metrics export; its ``order``
+    column is the count.
+    """
+    mapped, ignored = map_columns(headers, lookup)
+    layout = detect_layout(mapped, excel_config)
+    if layout is None and "gmv" in mapped and "successful_orders" not in mapped:
+        for canonical, header in list(mapped.items()):
+            if canonical == "order_id" and _header_key(header) == "order":
+                mapped.pop(canonical)
+                mapped["successful_orders"] = header
+                break
+        layout = detect_layout(mapped, excel_config)
+    return mapped, ignored, layout
+
+
 def parse_dates(series: pd.Series) -> pd.Series:
     """Parse mixed Excel/string dates, including Persian digits.
 
@@ -339,8 +362,7 @@ def load_workbook(path: str | Path) -> ExcelLoadResult:
         raw = raw.dropna(how="all")
         if raw.empty:
             continue
-        mapped, ignored = map_columns(raw.columns, lookup)
-        layout = detect_layout(mapped, excel_config)
+        mapped, ignored, layout = map_sheet(raw.columns, lookup, excel_config)
         report = SheetReport(
             sheet=str(sheet_name),
             layout=layout or "unknown",
@@ -417,8 +439,8 @@ def load_category_facts(
         if raw.empty:
             continue
         raw = raw.dropna(how="all")
-        mapped, _ignored = map_columns(raw.columns, lookup)
-        if detect_layout(mapped, excel_config) != "daily_metrics":
+        mapped, _ignored, layout = map_sheet(raw.columns, lookup, excel_config)
+        if layout != "daily_metrics":
             continue
         work = pd.DataFrame({c: raw[h] for c, h in mapped.items()})
         work["date"] = parse_dates(work["date"])
@@ -456,6 +478,65 @@ def load_category_facts(
     if with_diagnostics:
         return grouped, diagnostics
     return grouped
+
+
+def payment_method_shares(path: str | Path, *, days: int = 28) -> pd.DataFrame:
+    """Historical share of orders by payment method per vertical x category.
+
+    The engine forecasts the category total; the delivery file may then split
+    that total across payment methods. The split must come from the source's
+    own recent behaviour, not a guess, and the shares must sum to exactly 1
+    per category so the split never changes the category total.
+
+    Returns an empty frame when the workbook has no payment-method column.
+    """
+    path = Path(path)
+    excel_config = load_excel_config()
+    lookup = build_header_lookup(excel_config)
+    sheets = _read_sheets(path)
+
+    frames: list[pd.DataFrame] = []
+    for _sheet, raw in sheets.items():
+        if raw.empty:
+            continue
+        raw = raw.dropna(how="all")
+        mapped, _ignored, layout = map_sheet(raw.columns, lookup, excel_config)
+        if layout != "daily_metrics" or "payment_method_type" not in mapped:
+            continue
+        work = pd.DataFrame({c: raw[h] for c, h in mapped.items()})
+        work["date"] = parse_dates(work["date"])
+        work["orders"] = _numeric(work["successful_orders"])
+        work["vertical"] = work["vertical"].astype(str).str.strip()
+        work["category"] = (
+            work["category"].astype(str).str.strip() if "category" in work else ""
+        )
+        work["payment_method"] = (
+            work["payment_method_type"].astype(str).str.strip().replace("", "UNKNOWN")
+        )
+        frames.append(work[["date", "vertical", "category", "orders", "payment_method"]])
+
+    columns = ["vertical", "category", "payment_method", "share"]
+    if not frames:
+        return pd.DataFrame(columns=columns)
+
+    facts = pd.concat(frames, ignore_index=True)
+    facts = facts[facts["date"].notna() & facts["orders"].notna() & (facts["orders"] > 0)]
+    if facts.empty:
+        return pd.DataFrame(columns=columns)
+
+    latest = facts["date"].max()
+    window_start = latest - pd.Timedelta(days=max(1, days) - 1)
+    recent = facts[facts["date"] >= window_start]
+    if recent.empty:
+        recent = facts
+
+    grouped = (
+        recent.groupby(["vertical", "category", "payment_method"], as_index=False)
+        .agg(orders=("orders", "sum"))
+    )
+    totals = grouped.groupby(["vertical", "category"])["orders"].transform("sum")
+    grouped["share"] = grouped["orders"] / totals
+    return grouped[columns].sort_values(columns).reset_index(drop=True)
 
 
 def template_frames() -> tuple[pd.DataFrame, pd.DataFrame]:
