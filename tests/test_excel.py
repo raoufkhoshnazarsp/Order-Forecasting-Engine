@@ -236,3 +236,80 @@ def test_pipeline_short_history_falls_back(tmp_path):
     result = run_pipeline(path, horizon=7, min_train_days=60)
     assert result.model == "seasonal_naive"
     assert any("seasonal naive" in w for w in result.warnings)
+
+
+def rewrite_package_as_strict(source, target):
+    """Rewrite a transitional workbook as Strict OOXML, like Excel does."""
+    import zipfile
+
+    from src.ingestion.excel import STRICT_NS_MAP
+
+    reverse = {v: k for k, v in STRICT_NS_MAP.items()}
+    with zipfile.ZipFile(source) as zin, zipfile.ZipFile(
+        target, "w", zipfile.ZIP_DEFLATED
+    ) as zout:
+        for item in zin.infolist():
+            payload = zin.read(item.filename)
+            if item.filename.endswith((".xml", ".rels")):
+                text = payload.decode("utf-8")
+                for transitional, strict in reverse.items():
+                    text = text.replace(transitional, strict)
+                payload = text.encode("utf-8")
+            zout.writestr(item, payload)
+    return target
+
+
+def test_strict_ooxml_workbook_is_read_like_a_normal_one(tmp_path):
+    """Excel's "Strict Open XML" save has different namespaces and, unhandled,
+    reads as a workbook with zero sheets: the upload looks like an empty file."""
+    from src.ingestion.excel import _is_strict_package
+
+    frame = pd.DataFrame(
+        [
+            {
+                "date": "2026-01-01",
+                "vertical": "FASHION",
+                "category": "Shoes",
+                "payment_method_type": "INSTALLMENT",
+                "orders": 10,
+                "gmv": 1_000_000,
+            }
+        ]
+    )
+    normal = write_workbook(tmp_path / "normal.xlsx", {"data": frame})
+    strict = rewrite_package_as_strict(normal, tmp_path / "strict.xlsx")
+
+    assert _is_strict_package(strict)
+    assert not _is_strict_package(normal)
+
+    strict_result = load_workbook(strict)
+    normal_result = load_workbook(normal)
+    assert [r.sheet for r in strict_result.reports] == [
+        r.sheet for r in normal_result.reports
+    ]
+    assert len(strict_result.facts) == len(normal_result.facts) == 1
+    assert strict_result.facts["successful_orders"].iloc[0] == 10
+
+
+def test_gmv_with_decimals_survives_the_data_mart(tmp_path):
+    """Money divided by 10 is fractional; casting it to Int64 raises and the
+    whole run fails before any forecast is produced."""
+    rows = []
+    start = date(2026, 1, 1)
+    for i in range(70):
+        for vertical in ("FASHION", "DIGITAL"):
+            rows.append(
+                {
+                    "date": (start + timedelta(days=i)).isoformat(),
+                    "vertical": vertical,
+                    "category": "Cat",
+                    "orders": 100 + i,
+                    # .5 is exactly what rial / 10 produces for odd amounts
+                    "gmv": (1_000_000 + i * 137) + 0.5,
+                }
+            )
+    path = write_workbook(tmp_path / "fractional.xlsx", {"data": pd.DataFrame(rows)})
+
+    result = run_pipeline(path, horizon=7, run_backtest=False)
+    assert result.mart["gmv"].notna().any()
+    assert result.forecast is not None

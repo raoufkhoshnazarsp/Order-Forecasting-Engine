@@ -145,6 +145,12 @@ def build_daily_mart(
         filled = merged[col].fillna(0)
         merged[col] = filled.where(present | genuine_zero, other=pd.NA)
         if filled.dtype.kind in "if":
+            # Counts are whole numbers; money is not. A GMV exported as
+            # rial/10 carries decimals, and Int64 cannot hold them.
+            whole = filled.dropna()
+            if not (whole == whole.round()).all():
+                merged[col] = merged[col].astype("Float64")
+                continue
             merged[col] = merged[col].astype("Int64")
     merged = merged.drop(columns=["_fact_present"])
 

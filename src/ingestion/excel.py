@@ -9,6 +9,8 @@ already consumes (``date, entity_type, entity_id, successful_orders``).
 from __future__ import annotations
 
 import re
+import tempfile
+import zipfile
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -182,11 +184,85 @@ def _numeric(series: pd.Series) -> pd.Series:
     return pd.to_numeric(cleaned, errors="coerce")
 
 
-def _read_sheets(path: Path) -> dict[str, pd.DataFrame]:
+STRICT_NS_MAP = {
+    # Strict OOXML (ISO 29500 Strict) uses purl.oclc.org namespaces that
+    # openpyxl knows nothing about: it parses the workbook, finds no sheet
+    # relationships, and silently returns a workbook with zero sheets. Excel
+    # itself saves "Strict Open XML Spreadsheet" files this way when asked.
+    "http://purl.oclc.org/ooxml/spreadsheetml/main":
+        "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+    "http://purl.oclc.org/ooxml/officeDocument/relationships":
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    "http://purl.oclc.org/ooxml/drawingml/main":
+        "http://schemas.openxmlformats.org/drawingml/2006/main",
+    "http://purl.oclc.org/ooxml/drawingml/chart":
+        "http://schemas.openxmlformats.org/drawingml/2006/chart",
+    "http://purl.oclc.org/ooxml/drawingml/spreadsheetDrawing":
+        "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing",
+    "http://purl.oclc.org/ooxml/package/relationships":
+        "http://schemas.openxmlformats.org/package/2006/relationships",
+}
+
+
+def _is_strict_package(path: Path) -> bool:
+    """True when workbook.xml declares the Strict namespace."""
+    if path.suffix.lower() == ".xls":
+        return False
     try:
-        return pd.read_excel(path, sheet_name=None, dtype=object)
+        with zipfile.ZipFile(path) as archive:
+            head = archive.read("xl/workbook.xml")[:4096].decode("utf-8", "ignore")
+    except (KeyError, zipfile.BadZipFile, OSError):
+        return False
+    return "purl.oclc.org/ooxml/" in head
+
+
+def _downgrade_strict(path: Path) -> Path:
+    """Rewrite a Strict OOXML workbook as transitional OOXML in a temp file."""
+    handle = tempfile.NamedTemporaryFile(suffix=path.suffix, delete=False)
+    handle.close()
+    target = Path(handle.name)
+    try:
+        with zipfile.ZipFile(path) as source, zipfile.ZipFile(
+            target, "w", zipfile.ZIP_DEFLATED
+        ) as sink:
+            for item in source.infolist():
+                payload = source.read(item.filename)
+                if item.filename.endswith((".xml", ".rels")):
+                    text = payload.decode("utf-8")
+                    for strict, transitional in STRICT_NS_MAP.items():
+                        text = text.replace(strict, transitional)
+                    text = text.replace(' conformance="strict"', "")
+                    payload = text.encode("utf-8")
+                sink.writestr(item, payload)
+    except (zipfile.BadZipFile, OSError) as exc:
+        target.unlink(missing_ok=True)
+        raise ExcelInputError(
+            f"Could not read workbook {path.name}: {exc}"
+        ) from exc
+    return target
+
+
+def _read_sheets(path: Path) -> dict[str, pd.DataFrame]:
+    """Read every sheet, transparently accepting Strict OOXML workbooks."""
+    temp: Path | None = None
+    source = path
+    if _is_strict_package(path):
+        temp = _downgrade_strict(path)
+        source = temp
+    try:
+        sheets = pd.read_excel(source, sheet_name=None, dtype=object)
     except Exception as exc:  # noqa: BLE001 - surface a clear message
         raise ExcelInputError(f"Could not read workbook {path.name}: {exc}") from exc
+    finally:
+        if temp is not None:
+            temp.unlink(missing_ok=True)
+    if not sheets:
+        raise ExcelInputError(
+            f"Workbook {path.name} was read but contains no sheets. "
+            "Save it again as an ordinary .xlsx (not Strict Open XML) or check "
+            "that the tab is not hidden."
+        )
+    return sheets
 
 
 def _classify_entity(row: pd.Series, excel_config: dict[str, Any]) -> tuple[str, str]:
