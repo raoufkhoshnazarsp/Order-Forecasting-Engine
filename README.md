@@ -94,13 +94,13 @@ python scripts/forecast_from_excel.py --template data/template.xlsx
 | --- | --- | --- |
 | `Date` | ✅ | `2026-07-01` |
 | `vertical` | ✅ | `FASHION`، `Snapp-Venture` |
-| `Orders` | ✅ | `3711` |
+| `Orders` | ✅ | `3711` (یا `order` مفرد — به‌عنوان تعداد خوانده می‌شود) |
 | `GMV` | ✅ | `28436156909` |
 | `category` | ➖ | `ventures` (تشخیص Venture) |
 | `payment_method_type` | ➖ | `INSTALLMENT`، `PAY_NOW` |
 | `Active Merchants` | ➖ | `24` |
 
-ردیف‌ها به گرید `date × entity` تجمیع می‌شوند: `Orders` و `GMV` **جمع** می‌شوند (هرگز میانگین). اگر `vertical` برابر `Snapp-Venture` باشد یا `category` برابر `ventures`، ردیف به‌عنوان یک موجودیت `VENTURE` با همان نام ثبت می‌شود.
+ردیف‌ها به گرید `date × entity` تجمیع می‌شوند: `Orders` و `GMV` **جمع** می‌شوند (هرگز میانگین). اگر `vertical` برابر `Snapp-Venture` باشد یا `category` برابر `ventures`، ردیف به‌عنوان یک موجودیت `VENTURE` با همان نام ثبت می‌شود. اگر `payment_method_type` حضور داشته باشد، فایل تحویل همان مجموع دسته را با سهم تاریخی ۲۸ روز آخر بین روش‌های پرداخت تقسیم می‌کند و مجموع روش‌ها دقیقاً برابر سطر دسته می‌ماند. قرارداد کامل در `specs/data-contract.md`.
 
 ### الف) داده‌های روزانهٔ تجمیع‌شده (توصیه‌شده)
 
