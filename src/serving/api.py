@@ -22,6 +22,7 @@ from src.ingestion.excel import (
     ExcelInputError,
     load_category_facts,
     load_workbook,
+    payment_method_shares,
     template_bytes,
 )
 from src.pipeline import PipelineError, run_pipeline
@@ -594,7 +595,7 @@ def _delivery_bytes(frame: pd.DataFrame) -> bytes:
         sheet = writer.sheets["Sheet1"]
         for cell in sheet["A"][1:]:
             cell.number_format = "yyyy-mm-dd"
-        for column, width in zip("ABCDEF", (12, 10, 16, 30, 16, 20)):
+        for column, width in zip("ABCDEFG", (12, 10, 16, 30, 18, 16, 20)):
             sheet.column_dimensions[column].width = width
     return buffer.getvalue()
 
@@ -622,6 +623,7 @@ def download_package(run_id: str) -> Response:
                 origin=max(facts["date"]).date(),
                 horizon=horizon,
                 model=model,
+                method_shares=payment_method_shares(saved),
             )
             validate_delivery(built.frame)
         except (ExcelInputError, DeliveryError) as exc:
@@ -845,7 +847,7 @@ async def delivery(
     model: str = Form("auto"),
     quality_token: str = Form(""),
 ) -> StreamingResponse:
-    """Return the delivery workbook: date | level | vertical | category | order | GMV.
+    """Return the delivery workbook: date | level | vertical | category | payment_method | order | GMV.
 
     This is the business-facing format, one row per date x vertical x category,
     covering ``horizon`` days after the last day present in the upload.
@@ -863,7 +865,11 @@ async def delivery(
     try:
         facts = load_category_facts(saved)
         result = build_delivery_frame(
-            facts, origin=max(facts["date"]), horizon=horizon, model=model
+            facts,
+            origin=max(facts["date"]),
+            horizon=horizon,
+            model=model,
+            method_shares=payment_method_shares(saved),
         )
         validate_delivery(result.frame)
     except ExcelInputError as exc:
@@ -883,7 +889,7 @@ async def delivery(
         sheet = writer.sheets["Sheet1"]
         for cell in sheet["A"][1:]:
             cell.number_format = "yyyy-mm-dd"
-        for column, width in zip("ABCDEF", (12, 10, 16, 30, 16, 20)):
+        for column, width in zip("ABCDEFG", (12, 10, 16, 30, 18, 16, 20)):
             sheet.column_dimensions[column].width = width
     buffer.seek(0)
 

@@ -32,7 +32,7 @@ import pandas as pd
 from src.models.baselines import BASELINES
 from src.serving.service import RunContext, residual_sigma
 
-OUTPUT_COLUMNS = ["date", "level", "vertical", "category", "order", "GMV"]
+OUTPUT_COLUMNS = ["date", "level", "vertical", "category", "payment_method", "order", "GMV"]
 
 # Display names used by the delivery file, keyed by the source spelling.
 VERTICAL_DISPLAY = {
@@ -95,6 +95,60 @@ class DeliveryResult:
 def _display_vertical(name: str) -> str:
     key = str(name).strip().upper().replace("_", "-")
     return VERTICAL_DISPLAY.get(key, key)
+
+
+NO_METHOD = "UNKNOWN"
+
+
+def _method_split(
+    shares: pd.DataFrame | None, vertical: str, category: str
+) -> list[tuple[str, float]]:
+    """The payment methods of one category and their historical share."""
+    if shares is None or shares.empty:
+        return [(NO_METHOD, 1.0)]
+    rows = shares[
+        shares["vertical"].astype(str).eq(str(vertical))
+        & shares["category"].astype(str).eq(str(category))
+    ].sort_values("payment_method")
+    pairs = [
+        (str(row.payment_method), float(row.share))
+        for row in rows.itertuples(index=False)
+        if float(row.share) > 0
+    ]
+    total = sum(share for _name, share in pairs)
+    if not pairs or total <= 0:
+        return [(NO_METHOD, 1.0)]
+    return [(name, share / total) for name, share in pairs]
+
+
+def _split_across_methods(
+    orders: float, gmv: float, methods: list[tuple[str, float]]
+) -> list[tuple[str, float, float]]:
+    """Split one category-day total, with the last method absorbing rounding.
+
+    The split happens before rounding, and the remainder is assigned to the
+    last method after rounding, so the methods always add back up to the
+    category total exactly — the same guarantee VERTICALS has over verticals.
+    """
+    total_orders = round(orders, 6)
+    total_gmv = round(gmv, 0)
+    if len(methods) == 1:
+        return [(methods[0][0], total_orders, total_gmv)]
+
+    out: list[tuple[str, float, float]] = []
+    running_orders = 0.0
+    running_gmv = 0.0
+    for name, share in methods[:-1]:
+        part_orders = round(orders * share, 6)
+        part_gmv = round(gmv * share, 0)
+        out.append((name, part_orders, part_gmv))
+        running_orders += part_orders
+        running_gmv += part_gmv
+    last_name = methods[-1][0]
+    out.append(
+        (last_name, round(total_orders - running_orders, 6), total_gmv - running_gmv)
+    )
+    return out
 
 
 def _category_series(
@@ -196,11 +250,18 @@ def build_delivery_frame(
     model: str = "auto",
     backtest: pd.DataFrame | None = None,
     include_empty_siblings: bool = True,
+    method_shares: pd.DataFrame | None = None,
 ) -> DeliveryResult:
     """Forecast every category and lay the result out in the delivery format.
 
     ``facts`` must carry ``date, vertical, category, orders, gmv`` at the
     source grain (one row per date x vertical x category).
+
+    ``method_shares`` (``vertical, category, payment_method, share``) splits
+    each category row across payment methods. The split is applied *after*
+    the category total is fixed and the last method of each category absorbs
+    the rounding remainder, so the methods still add up to the category row
+    exactly. Without it every row carries ``UNKNOWN``.
     """
     if facts.empty:
         raise DeliveryError("No source rows to forecast from")
@@ -238,17 +299,22 @@ def build_delivery_frame(
         gmv_path = order_path * aov_path
 
         display = _display_vertical(vertical)
+        methods = _method_split(method_shares, vertical, category)
         for day, o, g in zip(target_dates, order_path, gmv_path):
-            records.append(
-                {
-                    "date": day,
-                    "level": "vertical",
-                    "vertical": display,
-                    "category": category,
-                    "order": float(o),
-                    "GMV": float(g),
-                }
-            )
+            for method, order_part, gmv_part in _split_across_methods(
+                float(o), float(g), methods
+            ):
+                records.append(
+                    {
+                        "date": day,
+                        "level": "vertical",
+                        "vertical": display,
+                        "category": category,
+                        "payment_method": method,
+                        "order": order_part,
+                        "GMV": gmv_part,
+                    }
+                )
 
     if not records:
         raise DeliveryError("No category produced a forecast")
@@ -260,7 +326,7 @@ def build_delivery_frame(
     totals = (
         core.groupby("date", as_index=False)
         .agg(order=("order", "sum"), GMV=("GMV", "sum"))
-        .assign(level="vertical", vertical=TOTAL_LABEL, category=None)
+        .assign(level="vertical", vertical=TOTAL_LABEL, category=None, payment_method=None)
     )
 
     extras = []
@@ -269,7 +335,12 @@ def build_delivery_frame(
         extras.append(
             venture.groupby("date", as_index=False)
             .agg(order=("order", "sum"), GMV=("GMV", "sum"))
-            .assign(level="vertical", vertical=VENTURE_LABEL, category=VENTURE_CATEGORY)
+            .assign(
+                level="vertical",
+                vertical=VENTURE_LABEL,
+                category=VENTURE_CATEGORY,
+                payment_method=None,
+            )
         )
     else:
         warnings.append(
@@ -284,7 +355,7 @@ def build_delivery_frame(
         extras.append(
             pay.groupby("date", as_index=False)
             .agg(order=("order", "sum"), GMV=("GMV", "sum"))
-            .assign(level="vertical", vertical=PAY_LABEL, category=None)
+            .assign(level="vertical", vertical=PAY_LABEL, category=None, payment_method=None)
         )
     elif include_empty_siblings:
         # The delivery format always carries a SNAPP-PAY row. The source has
@@ -296,6 +367,7 @@ def build_delivery_frame(
                     "level": "vertical",
                     "vertical": PAY_LABEL,
                     "category": None,
+                    "payment_method": None,
                     "order": 0.0,
                     "GMV": 0.0,
                 }
@@ -319,7 +391,10 @@ def build_delivery_frame(
         {TOTAL_LABEL: 1, VENTURE_LABEL: 2, PAY_LABEL: 3}
     ).fillna(0)
     frame = (
-        frame.sort_values(["date", "_vrank", "_trank", "category"], na_position="last")
+        frame.sort_values(
+            ["date", "_vrank", "_trank", "category", "payment_method"],
+            na_position="last",
+        )
         .drop(columns=["_vrank", "_trank"])
         .reset_index(drop=True)
     )
@@ -376,6 +451,7 @@ def write_delivery(frame: pd.DataFrame, path: str | Path) -> Path:
         sheet.column_dimensions["B"].width = 10
         sheet.column_dimensions["C"].width = 16
         sheet.column_dimensions["D"].width = 30
-        sheet.column_dimensions["E"].width = 16
-        sheet.column_dimensions["F"].width = 20
+        sheet.column_dimensions["E"].width = 18
+        sheet.column_dimensions["F"].width = 16
+        sheet.column_dimensions["G"].width = 20
     return path

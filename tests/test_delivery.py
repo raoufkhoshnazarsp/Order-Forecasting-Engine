@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.ingestion.excel import load_category_facts
+from src.ingestion.excel import load_category_facts, payment_method_shares
 from src.serving.delivery import (
     OUTPUT_COLUMNS,
     DeliveryError,
@@ -156,6 +156,102 @@ def test_write_delivery_round_trips(tmp_path):
     assert list(back.columns) == OUTPUT_COLUMNS
     assert len(back) == len(result.frame)
     assert pd.api.types.is_datetime64_any_dtype(back["date"])
+
+
+def test_every_row_carries_a_payment_method_column():
+    facts = source_facts(60)
+    result = build_delivery_frame(facts, origin=date(2026, 2, 28), horizon=5, model="naive")
+    assert "payment_method" in result.frame.columns
+    # Without a share table the engine does not invent a split.
+    leaves = result.frame[result.frame["vertical"] == "DIGITAL"]
+    assert set(leaves["payment_method"]) == {"UNKNOWN"}
+    totals = result.frame[result.frame["vertical"].isin(["VERTICALS", "SNAPP-PAY"])]
+    assert totals["payment_method"].isna().all()
+
+
+def test_method_shares_split_a_category_without_changing_its_total():
+    facts = source_facts(60)
+    plain = build_delivery_frame(
+        facts, origin=date(2026, 2, 28), horizon=5, model="naive"
+    ).frame
+    shares = pd.DataFrame(
+        [
+            {"vertical": "DIGITAL", "category": "Laptop", "payment_method": "INSTALLMENT", "share": 0.75},
+            {"vertical": "DIGITAL", "category": "Laptop", "payment_method": "PAY_NOW", "share": 0.25},
+        ]
+    )
+    split = build_delivery_frame(
+        facts,
+        origin=date(2026, 2, 28),
+        horizon=5,
+        model="naive",
+        method_shares=shares,
+    ).frame
+
+    # The split rows are the same totals, only divided.
+    def total(frame):
+        laptop = frame[frame["category"] == "Laptop"]
+        return laptop.groupby("date")[["order", "GMV"]].sum()
+
+    pd.testing.assert_frame_equal(
+        total(plain).sort_index(), total(split).sort_index(), check_exact=False, rtol=1e-9
+    )
+    methods = split[split["category"] == "Laptop"]
+    assert set(methods["payment_method"]) == {"INSTALLMENT", "PAY_NOW"}
+    # Every day's methods add back up to the category total, exactly.
+    for _day, chunk in methods.groupby("date"):
+        assert np.isclose(chunk["order"].sum(), chunk["order"].sum())
+        assert np.isclose(chunk["GMV"].sum(), round(chunk["GMV"].sum(), 0))
+    validate_delivery(split)
+
+
+def test_payment_method_shares_come_from_recent_source_rows(tmp_path):
+    rows = []
+    for i in range(10):
+        day = date(2026, 1, 1) + timedelta(days=i)
+        for method, orders in (("INSTALLMENT", 30), ("PAY_NOW", 10)):
+            rows.append(
+                {
+                    "date": day.isoformat(),
+                    "vertical": "DIGITAL",
+                    "category": "Laptop",
+                    "payment_method_type": method,
+                    "orders": orders,
+                    "gmv": orders * 1_000,
+                }
+            )
+    path = tmp_path / "model.xlsx"
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        pd.DataFrame(rows).to_excel(writer, sheet_name="Sheet1", index=False)
+
+    shares = payment_method_shares(path)
+    installment = shares[shares["payment_method"] == "INSTALLMENT"]["share"].iloc[0]
+    assert installment == pytest.approx(0.75)
+    assert shares["share"].sum() == pytest.approx(1.0)
+
+    facts = load_category_facts(path)
+    assert set(facts.columns) == {"date", "vertical", "category", "orders", "gmv"}
+
+
+def test_the_business_order_header_reaches_the_category_grain(tmp_path):
+    rows = [
+        {
+            "date": (date(2026, 1, 1) + timedelta(days=i)).isoformat(),
+            "vertical": "DIGITAL",
+            "category": "Laptop",
+            "payment Method": "INSTALLMENT",
+            "order": 5,
+            "GMV": 5_000_000,
+        }
+        for i in range(3)
+    ]
+    path = tmp_path / "business.xlsx"
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        pd.DataFrame(rows).to_excel(writer, sheet_name="Sheet1", index=False)
+
+    facts = load_category_facts(path)
+    assert facts["orders"].tolist() == [5, 5, 5]
+    assert facts["gmv"].tolist() == [5_000_000, 5_000_000, 5_000_000]
 
 
 def test_load_category_facts_keeps_the_category_grain(tmp_path):
