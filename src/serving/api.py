@@ -45,7 +45,7 @@ STATIC_DIR = BASE_DIR / "static"
 TEMPLATE_DIR = BASE_DIR / "templates"
 ARTIFACTS = config.PROJECT_ROOT / "artifacts" / "web_runs"
 
-app = FastAPI(title="BNPL Forecast Studio", docs_url="/api/docs", redoc_url=None)
+app = FastAPI(title="استودیوی پیش‌بینی BNPL", docs_url="/api/docs", redoc_url=None)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 ALLOWED_SUFFIXES = {".xlsx", ".xlsm", ".xls"}

@@ -111,7 +111,7 @@
     if (box) {
       box.innerHTML = cards.map(([num, title, sub, go, done]) => `
         <button class="fact" type="button" data-go="${go}">
-          <span class="fact-label">${num} · ${title} ${done ? "✓" : ""}</span>
+          <span class="fact-label">${num} · ${title} ${done ? '<span class="tick" aria-label="انجام شد"></span>' : ""}</span>
           <span class="fact-sub">${esc(sub)}</span>
         </button>`).join("");
       box.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
@@ -298,17 +298,18 @@
     const base = data.total_last_actual;
     const change = base && d1 ? (d1 - base) / base : null;
     const cards = [
-      ["جمع سفارش دوره", n(sum(total)), `افق ${n(horizon)} روز`, "kpi-lead"],
-      ["جمع GMV دوره", data.total_gmv_forecast ? n(sum(data.total_gmv_forecast)) : "—", "برآورد ارزش ناخالص", "kpi-lead"],
+      ["جمع سفارش دوره", n(sum(total)), `افق ${n(horizon)} روز`, "kpi-lead", null],
+      ["جمع GMV دوره", data.total_gmv_forecast ? n(sum(data.total_gmv_forecast)) : "—", "برآورد ارزش ناخالص", "kpi-lead", null],
       ["پیش‌بینی فردا", n(d1), change == null ? "بدون مبنای مقایسه"
-        : `${change >= 0 ? "▲" : "▼"} ${pct(Math.abs(change))} نسبت به آخرین روز`, "kpi-accent"],
-      ["پیش‌بینی روز " + n(horizon), n(end), "انتهای افق", ""],
-      ["مدل انتخاب‌شده", modelLabel(data.model), "بر اساس بک‌تست", ""],
+        : `${pct(Math.abs(change))} نسبت به آخرین روز`, "kpi-accent",
+        change == null ? null : (change >= 0 ? "up" : "down")],
+      ["پیش‌بینی روز " + n(horizon), n(end), "انتهای افق", "", null],
+      ["مدل انتخاب‌شده", modelLabel(data.model), "بر اساس بک‌تست", "", null],
     ];
     $("kpis").innerHTML = cards.map((c) => `
       <div class="kpi ${c[3]}"><span class="kpi-label">${c[0]}</span>
       <strong class="kpi-value">${esc(c[1])}</strong>
-      <span class="kpi-sub">${esc(c[2])}</span></div>`).join("");
+      <span class="kpi-sub">${c[4] ? `<span class="trend trend-${c[4]}" aria-hidden="true"></span>` : ""}${esc(c[2])}</span></div>`).join("");
     $("result-sub").textContent =
       `${data.date_start || ""} تا ${data.date_end || ""} · افق ${n(horizon)} روز · مدل ${modelLabel(data.model)}`;
   }
