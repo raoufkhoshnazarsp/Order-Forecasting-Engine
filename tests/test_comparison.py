@@ -188,3 +188,40 @@ def test_result_is_json_safe():
         "validity",
         "warnings",
     }
+
+
+def test_a_vertical_with_a_missing_day_does_not_break_the_dashboard():
+    """A day with no sales leaves no row, and that used to desync the backtest.
+
+    Reported live as "boolean index did not match indexed array ... 30 but 29":
+    the horizon slice returned one row per *present* day, while the forecast
+    array is always `horizon` long.
+    """
+    data = facts(200)
+    # One vertical is silent for a day in the middle, as it would be on a
+    # holiday or a broken feed.
+    hole = (data["date"] == pd.Timestamp(2026, 5, 10)) & (
+        data["vertical"] == "GOLD"
+    )
+    data = data[~hole]
+    result = build_comparison(
+        data, origin=date(2026, 7, 1), horizon=30, months=6, model="naive"
+    )
+    assert result.scenarios
+    assert result.validity["sigma_source"] in {"backtest", "none"}
+
+
+def test_short_forecast_never_desyncs_the_aligned_arrays():
+    """`pred[mask]` raises IndexError when a model returns fewer rows.
+
+    Kept as a guard rather than a reproduction: the slicing bug that was fixed
+    lives one level down, but the alignment contract is what broke.
+    """
+    from src.models.baselines import ForecastResult
+    from src.serving.delivery import _forecast_orders
+
+    def short(series, horizon):
+        return ForecastResult(model_name="short", values=np.ones(horizon - 1))
+
+    out = _forecast_orders(pd.Series([1.0, 2.0, 3.0]), short, 30)
+    assert len(out) == 30

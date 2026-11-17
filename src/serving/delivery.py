@@ -3,7 +3,7 @@
 This is the format the business consumes, and it is deliberately different
 from the engine's internal contract:
 
-    date | level | vertical | category | order | GMV
+    date | level | vertical | category | payment_method | order | GMV
 
 Rules taken from the reference file:
 
@@ -173,7 +173,10 @@ def _forecast_orders(series: pd.Series, forecaster, horizon: int) -> np.ndarray:
     if clean.empty:
         return np.zeros(horizon)
     values = np.asarray(forecaster(clean, horizon).values, dtype="float64")
-    return np.clip(values, 0, None)
+    if len(values) < horizon:
+        # Never let a short forecast desync the arrays that are compared with it.
+        values = np.concatenate([values, np.full(horizon - len(values), np.nan)])
+    return np.clip(values[:horizon], 0, None)
 
 
 def _forecast_aov(orders: pd.Series, gmv: pd.Series, horizon: int) -> np.ndarray:
@@ -202,9 +205,14 @@ def select_model(
         last = series.index[-1]
         while origin + pd.Timedelta(days=horizon) <= last:
             train = series.loc[:origin]
-            actual = series.loc[
-                origin + pd.Timedelta(days=1): origin + pd.Timedelta(days=horizon)
-            ]
+            # Reindex onto the exact horizon instead of slicing. A day with no
+            # sales leaves a NaN hole in the series, and slicing a non-contiguous
+            # index silently returns fewer than ``horizon`` rows; the boolean
+            # mask then no longer matches the forecast array.
+            window = pd.date_range(
+                origin + pd.Timedelta(days=1), periods=horizon, freq="D"
+            )
+            actual = series.reindex(window)
             if actual.notna().sum() >= horizon // 2:
                 for name, forecaster in BASELINES.items():
                     pred = _forecast_orders(train, forecaster, horizon)

@@ -28,6 +28,7 @@ from src.ingestion.excel import (
 )
 from src.pipeline import PipelineError, run_pipeline
 from src.serving.delivery import (
+    OUTPUT_COLUMNS,
     DeliveryError,
     build_delivery_frame,
     validate_delivery,
@@ -90,6 +91,7 @@ def index() -> HTMLResponse:
     return _render(
         "index.html",
         cur_home=CURRENT,
+        package_columns=" | ".join(OUTPUT_COLUMNS),
         side_foot="پردازش کاملاً محلی روی فایل اکسل<br />بدون اتصال به دیتابیس",
     )
 

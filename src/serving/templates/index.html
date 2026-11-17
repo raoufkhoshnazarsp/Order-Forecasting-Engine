@@ -464,10 +464,10 @@
               </div>
             </div>
             <div class="fact">
-              <span class="fact-label">بستهٔ تحویل</span>
-              <span class="fact-sub">اکسل با ستون‌های date، level، vertical، category، order و GMV.</span>
+              <span class="fact-label">بستهٔ تحویل — آخرین قدم</span>
+              <span class="fact-sub">اکسل با ستون‌های {{package_columns}}.</span>
               <div class="btn-row">
-                <button type="button" class="btn btn-primary btn-sm" id="package-btn">پیش‌نمایش و دانلود</button>
+                <button type="button" class="btn btn-primary btn-sm" id="package-btn">ساخت پیش‌بینی و آماده‌سازی دانلود</button>
               </div>
             </div>
           </div>
@@ -499,6 +499,13 @@
                 <tbody></tbody>
               </table>
             </div>
+            <p class="package-download">
+              <a class="btn btn-primary" id="package-link" href="#" download>
+                دانلود خروجی پیش‌بینی ({{package_columns}})
+              </a>
+              <a class="btn btn-secondary" href="/api/template">دانلود قالب خالی</a>
+              <span class="muted" id="package-file"></span>
+            </p>
           </div>
 
           <div id="sensitivity-box" hidden>

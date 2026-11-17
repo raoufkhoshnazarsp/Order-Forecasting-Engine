@@ -488,6 +488,14 @@ details.section[open] { box-shadow: var(--shadow); }
 .btn-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
 .btn-row .muted { max-width: 46ch; line-height: 1.7; }
 
+/* The last step of the flow: the download is the point, so it gets its own row. */
+.package-download {
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+  margin-top: var(--sp-4); padding-top: var(--sp-4);
+  border-top: 1px solid var(--border);
+}
+.package-download .muted { direction: ltr; font-size: .85rem; }
+
 /* ---------- segmented control ---------- */
 .segmented {
   display: inline-flex; gap: 2px;

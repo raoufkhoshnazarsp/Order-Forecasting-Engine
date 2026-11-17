@@ -150,6 +150,7 @@ def _relative_sigma(facts: pd.DataFrame, forecaster, horizon: int) -> dict[str, 
     """Relative residual spread per vertical from rolling-origin backtests."""
     frame = facts.copy()
     frame["vertical"] = frame["vertical"].map(_display_vertical)
+    frame["date"] = pd.to_datetime(frame["date"])
     daily = (
         frame.groupby(["date", "vertical"], as_index=False)
         .agg(orders=("orders", "sum"))
@@ -160,6 +161,13 @@ def _relative_sigma(facts: pd.DataFrame, forecaster, horizon: int) -> dict[str, 
     for vertical, chunk in daily.groupby("vertical"):
         series = chunk.set_index("date")["orders"].astype("float64").sort_index()
         series = series[~series.index.duplicated(keep="last")]
+        # Reindex onto a complete daily calendar. A vertical with no orders on
+        # a day has no row at all, and slicing a sparse index gives fewer rows
+        # than the horizon -- which silently pairs residuals with the wrong
+        # forecast days.
+        series = series.reindex(
+            pd.date_range(series.index.min(), series.index.max(), freq="D")
+        )
         if len(series) < 60:
             continue
         residuals: list[float] = []
@@ -168,9 +176,11 @@ def _relative_sigma(facts: pd.DataFrame, forecaster, horizon: int) -> dict[str, 
             train = series.loc[:origin].dropna()
             if len(train) >= 45:
                 pred = _forecast_orders(train, forecaster, horizon)
-                actual = series.loc[
-                    origin + pd.Timedelta(days=1): origin + pd.Timedelta(days=horizon)
-                ]
+                actual = series.reindex(
+                    pd.date_range(
+                        origin + pd.Timedelta(days=1), periods=horizon, freq="D"
+                    )
+                )
                 for value, forecast in zip(actual.to_numpy(dtype="float64"), pred):
                     if not np.isnan(value) and value > 0:
                         residuals.append((value - forecast) / value)

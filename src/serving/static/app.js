@@ -126,6 +126,7 @@
     renderSteps();
     el.scrollIntoView({ behavior: "smooth", block: "start" });
     announce("مرحله: " + target);
+    if (target === "deliver" && state.runId) openDeliverStep();
   }
 
   /* ---------- 1 · data preview ---------- */
@@ -565,33 +566,56 @@
     }
   }
 
-  async function packageDownload() {
+  // Build the delivery file once, then leave a plain link behind. Triggering a
+  // download from inside the click and discarding the response meant a second
+  // press was the only way to download again -- and it rebuilt the workbook to
+  // get there. The endpoint caches, so the link can just point at it.
+  async function preparePackage() {
     clear("deliver-error");
     setBusy("deliver-progress", "package-btn", true, "در حال ساخت بستهٔ تحویل…");
     try {
+      const url = `/api/runs/${state.runId}/package`;
       const preview = await api(`/api/runs/${state.runId}/package/preview`);
       if (!preview.ready) {
-        const response = await fetch(`/api/runs/${state.runId}/package`);
+        const response = await fetch(url);
         if (!response.ok) {
           const body = await response.json().catch(() => ({}));
           throw new Error(body.detail || "ساخت بستهٔ تحویل ناموفق بود.");
         }
-        const blob = await response.blob();
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `forecast-${state.runId}.xlsx`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(link.href), 4000);
-        renderPackage(await api(`/api/runs/${state.runId}/package/preview`));
-      } else {
-        renderPackage(preview);
+        await response.arrayBuffer();
       }
+      showPackageLink(url);
+      renderPackage(await api(`/api/runs/${state.runId}/package/preview`));
     } catch (error) {
       show("deliver-error", error.message);
     } finally {
       setBusy("deliver-progress", "package-btn", false);
+    }
+  }
+
+  function showPackageLink(url) {
+    const link = $("package-link");
+    link.href = url;
+    link.download = `forecast-${state.runId}.xlsx`;
+    link.setAttribute("data-run", state.runId || "");
+    $("package-file").textContent = link.download;
+  }
+
+  // The last step opens with the download already prepared, so the format is
+  // one press away rather than something to discover.
+  async function openDeliverStep() {
+    go("deliver");
+    if (!state.runId) return;
+    const link = $("package-link");
+    if (link.dataset.run === state.runId) return;
+    try {
+      const preview = await api(`/api/runs/${state.runId}/package/preview`);
+      if (preview.ready) {
+        showPackageLink(`/api/runs/${state.runId}/package`);
+        renderPackage(preview);
+      }
+    } catch (error) {
+      show("deliver-error", error.message);
     }
   }
 
@@ -645,7 +669,7 @@
     });
     $("run-btn").addEventListener("click", runForecast);
     $("monthly-btn").addEventListener("click", monthly);
-    $("package-btn").addEventListener("click", packageDownload);
+    $("package-btn").addEventListener("click", preparePackage);
     $("sens-btn").addEventListener("click", sensitivity);
     $("sens-reset").addEventListener("click", () => {
       state.sensitivity = null;
