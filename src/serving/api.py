@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+import mimetypes
 import re
 from datetime import date, datetime
 from pathlib import Path
@@ -46,6 +47,11 @@ TEMPLATE_DIR = BASE_DIR / "templates"
 ARTIFACTS = config.PROJECT_ROOT / "artifacts" / "web_runs"
 
 app = FastAPI(title="استودیوی پیش‌بینی BNPL", docs_url="/api/docs", redoc_url=None)
+# Slim Python images carry no mapping for web fonts, so /static/*.woff would go
+# out as application/octet-stream; browsers still load it, but a correct type
+# keeps strict proxies and caching layers happy.
+mimetypes.add_type("font/woff", ".woff")
+mimetypes.add_type("font/woff2", ".woff2")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 ALLOWED_SUFFIXES = {".xlsx", ".xlsm", ".xls"}
