@@ -16,12 +16,11 @@
     <div class="main-col">
       <header class="topbar">
         <div class="crumbs">
-          <span>فضای کاری</span><span>/</span><strong id="crumb">جریان پیش‌بینی</strong>
+          <span>فضای کاری</span><span>/</span><strong id="crumb">پیش‌بینی سفارش</strong>
         </div>
         <div class="top-actions">
-          <span class="pill" id="engine-pill">موتور فعال</span>
-          <a class="btn btn-secondary btn-sm" href="/api/template">قالب اکسل</a>
-          <a class="btn btn-secondary btn-sm" href="/api/sample">دادهٔ نمونه</a>
+          <span class="pill" id="engine-pill">موتور آماده</span>
+          <a class="top-link" href="/api/sample">دادهٔ نمونه</a>
         </div>
       </header>
 
@@ -45,42 +44,94 @@
         <p class="sr-live" id="announcer" role="status" aria-live="polite"></p>
 
         <!-- 0 — status -------------------------------------------------- -->
-        <section class="hero" id="overview" data-step="overview">
-          <h1>از فایل اکسل تا برنامهٔ ماه آینده، قدم‌به‌قدم</h1>
-          <p>
-            فایل را بارگذاری می‌کنید، خودتان کیفیت داده را تأیید می‌کنید، اعتبار مدل را
-            می‌بینید و در نهایت پیش‌بینی روزانه و بستهٔ تحویل را تحویل می‌گیرید.
-            هیچ محاسبه‌ای بدون تأیید شما شروع نمی‌شود.
-          </p>
-          <ol class="guide-steps" id="guide">
-            <li>فایل اکسل را در قدم «داده» بارگذاری کنید.</li>
-            <li>گزارش «بررسی کیفیت داده» را بخوانید و تأیید کنید.</li>
-            <li>پیش‌بینی را اجرا کنید؛ اعتبار بک‌تست، نتیجه و بستهٔ تحویل قدم‌به‌قدم باز می‌شوند.</li>
-          </ol>
-        </section>
+        <section class="overview" id="overview" data-step="overview">
+          <div class="overview-head">
+            <div>
+              <h1>شروع و سابقهٔ اجراها</h1>
+              <p class="overview-lede">از دادهٔ امروز، برای تصمیم‌های فردا.</p>
+            </div>
+            <button type="button" class="btn btn-primary" data-go="data">
+              پیش‌بینی جدید
+              <svg class="btn-plus" viewBox="0 0 20 20" fill="none" stroke="currentColor"
+                   stroke-width="1.7" stroke-linecap="round" aria-hidden="true">
+                <path d="M10 4v12M4 10h12"/>
+              </svg>
+            </button>
+          </div>
 
-        <section class="grid-3" id="status-cards" aria-label="وضعیت مراحل"></section>
+          <div class="hero-card">
+            <div class="hero-copy">
+              <h2>هر پیش‌بینی، یک تصمیم مطمئن‌تر</h2>
+              <p>
+                از فایل اکسل تا پیش‌بینی روزانهٔ سفارش و GMV؛ با بررسی کیفیت داده،
+                شواهد بک‌تست و خروجی آمادهٔ تحویل.
+              </p>
+              <div class="hero-actions">
+                <button type="button" class="btn btn-primary" data-go="data">
+                  شروع با فایل اکسل
+                  <span class="arrow arrow-next" aria-hidden="true"></span>
+                </button>
+                <a class="hero-link" href="/api/sample">یا امتحان با دادهٔ نمونه</a>
+              </div>
+            </div>
+            <div class="hero-viz">
+              <span class="hero-viz-label">دید روشن‌تری از ماه آینده</span>
+              <strong>پیش‌بینی + بازهٔ اطمینان</strong>
+              <svg class="hero-chart" viewBox="0 0 350 98" role="img"
+                   aria-label="نمودار نمونه: تاریخچهٔ واقعی و افق پیش‌بینی">
+                <g class="hero-grid" aria-hidden="true">
+                  <line x1="0" y1="20" x2="350" y2="20" />
+                  <line x1="0" y1="44" x2="350" y2="44" />
+                  <line x1="0" y1="68" x2="350" y2="68" />
+                  <line x1="0" y1="92" x2="350" y2="92" />
+                </g>
+                <path class="hero-band" d="M188 62 L205 48 L222 52 L239 34 L256 38 L273 22
+                          L290 28 L307 16 L324 22 L341 12 L341 40 L324 46 L307 40
+                          L290 50 L273 44 L256 58 L239 54 L222 72 L205 68 L188 80 Z" />
+                <path class="hero-line" d="M8 70 L25 62 L42 66 L59 52 L76 58 L93 44
+                          L110 50 L127 36 L144 42 L161 30 L178 36 L188 30" />
+                <path class="hero-forecast" d="M188 30 L205 40 L222 34 L239 46 L256 40
+                          L273 52 L290 46 L307 58 L324 52 L341 62" />
+                <line class="hero-drop" x1="188" y1="8" x2="188" y2="92" />
+              </svg>
+              <div class="hero-legend">
+                <span>تاریخچهٔ واقعی</span>
+                <span class="is-forecast">افق پیش‌بینی</span>
+              </div>
+            </div>
+          </div>
 
-        <details class="section" id="history-box">
-          <summary>اجراهای قبلی <span class="summary-meta" id="history-meta"></span></summary>
-          <div class="section-body">
-            <div class="table-wrap">
-              <table class="table table-compact" id="history-table">
+          <div id="guide" aria-label="راهنمای جریان و وضعیت مراحل">
+            <div class="grid-3 journey-cards" id="status-cards"></div>
+          </div>
+
+          <section class="history-card" id="history-box" aria-labelledby="history-title">
+            <div class="history-head">
+              <div>
+                <h2 id="history-title">اجراهای اخیر</h2>
+                <p class="muted">هر اجرا با همان فایل و تنظیمات قبلی بازیابی می‌شود.</p>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" id="history-all">
+                نمایش همه
+              </button>
+            </div>
+            <div class="table-wrap history-table-wrap">
+              <table class="table" id="history-table">
                 <thead><tr>
-                  <th scope="col">زمان</th>
-                  <th scope="col">فایل</th>
-                  <th scope="col">مبدأ</th>
+                  <th scope="col">نام فایل و اجرا</th>
+                  <th scope="col">زمان اجرا</th>
                   <th scope="col">افق</th>
-                  <th scope="col">مدل</th>
-                  <th scope="col">مرحلهٔ رسیده</th>
-                  <th scope="col">ادامه</th>
+                  <th scope="col">وضعیت</th>
+                  <th scope="col">عملیات</th>
                 </tr></thead>
                 <tbody></tbody>
               </table>
             </div>
-            <p class="muted">هر اجرا فایل خودش را نگه می‌دارد؛ «ادامه» همان نشست را بازیابی می‌کند.</p>
-          </div>
-        </details>
+            <p class="history-foot muted" id="history-foot">
+              نشست‌ها تا ۴۰ اجرا نگهداری می‌شوند.
+            </p>
+          </section>
+        </section>
 
         <!-- 1 — data ---------------------------------------------------- -->
         <section class="card" id="step-data" data-step="data">
@@ -122,10 +173,10 @@
 
               <label class="field">
                 <span>روش پرداخت</span>
-                <select id="payment-method" name="payment_method">
+                <select id="payment-method" name="payment_method" disabled>
                   <option value="" selected>همهٔ روش‌ها</option>
                 </select>
-                <small id="payment-method-hint">برای پیش‌بینی فقط یک روش (مثلاً INSTALLMENT)، روش را انتخاب و دوباره بررسی کنید.</small>
+                <small id="payment-method-hint">فهرست روش‌ها با خواندن فایل اینجا پر می‌شود؛ پس از آپلود می‌توانید روش را عوض کنید.</small>
               </label>
             </div>
 
@@ -252,6 +303,13 @@
                 <option value="global_ml">مدل سراسری ML</option>
               </select>
               <small>در حالت خودکار، مدلی انتخاب می‌شود که خطای بک‌تست کمتری دارد.</small>
+            </label>
+            <label class="field">
+              <span>روش پرداخت</span>
+              <select id="setup-payment" disabled>
+                <option value="" selected>همهٔ روش‌ها</option>
+              </select>
+              <small id="setup-payment-hint">ماهیت فایل بدون روش پرداخت پیش‌بینی می‌شود؛ برای یک روش، همان را انتخاب کنید.</small>
             </label>
             <label class="field">
               <span>روش تطبیق</span>
@@ -603,8 +661,8 @@
       </main>
 
       <footer class="footer">
+        <span>فراسو&nbsp; / &nbsp;موتور پیش‌بینی BNPL</span>
         <span>پردازش روی فایل اکسل شما — بدون اتصال به دیتابیس</span>
-        <span>© {{year}} استودیوی پیش‌بینی BNPL</span>
       </footer>
     </div>
   </div>

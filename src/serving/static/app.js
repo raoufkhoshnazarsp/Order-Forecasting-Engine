@@ -24,6 +24,7 @@
     runId: null, token: null, quality: null, preview: null,
     forecast: null, comparison: null, sensitivity: null,
     entity: "TOTAL", metric: "orders", step: 0, monthlyMonth: null,
+    methods: [],
   };
 
   function n(value) {
@@ -44,7 +45,19 @@
     return el.innerHTML;
   }
   function modelLabel(value) { return modelNames[value] || value || "—"; }
-  function stamp(value) { return value ? String(value).replace("T", " ").slice(0, 16) : "—"; }
+  // Persian relative time, as the design labels the history rows.
+  function stamp(value) {
+    if (!value) return "—";
+    const when = new Date(value);
+    if (Number.isNaN(when.getTime())) return String(value).replace("T", " ").slice(0, 16);
+    const time = when.toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" });
+    const startOf = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+    const days = Math.round((startOf(new Date()) - startOf(when)) / 86400000);
+    if (days === 0) return `امروز، ${time}`;
+    if (days === 1) return `دیروز، ${time}`;
+    if (days > 1 && days < 7) return `${fa.format(days)} روز پیش، ${time}`;
+    return `${when.toLocaleDateString("fa-IR")}، ${time}`;
+  }
   function clear(id) { const el = $(id); if (el) { el.hidden = true; el.textContent = ""; } }
   function show(id, text) { const el = $(id); if (el) { el.textContent = text; el.hidden = false; } }
   function announce(text) { const el = $("announcer"); if (el) el.textContent = text; }
@@ -63,21 +76,37 @@
     if (!response.ok) throw new Error(body.detail || "درخواست انجام نشد.");
     return body;
   }
-  // The methods come from the workbook itself, so the list is filled after the
-  // first check; the current choice survives a repopulation.
+  // The methods come from the workbook itself, so both selectors — the one at
+  // upload and the one at forecast — are filled from the same list, and the
+  // current choice survives a repopulation.
   function renderPaymentMethod(active, methods) {
-    const select = $("payment-method");
-    if (!select) return;
-    const list = methods || (state.quality && state.quality.payment_methods) || [];
-    const chosen = active !== undefined && active !== null ? active : select.value;
-    select.innerHTML = '<option value="">همهٔ روش‌ها</option>'
-      + list.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
-    if (chosen && list.some((m) => m === chosen)) select.value = chosen;
+    const list = methods || state.methods || (state.quality && state.quality.payment_methods) || [];
+    state.methods = list;
+    const explicit = active !== undefined && active !== null;
+    ["payment-method", "setup-payment"].forEach((id) => {
+      const select = $(id);
+      if (!select) return;
+      const keep = explicit
+        ? (list.some((m) => m === active) ? active : "")
+        : select.value;
+      select.innerHTML = '<option value="">همهٔ روش‌ها</option>'
+        + list.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
+      if (keep && list.some((m) => m === keep)) select.value = keep;
+      // Before the file is read there is nothing to choose from; once the
+      // workbook's methods are known the selector must actually be usable.
+      select.disabled = !list.length;
+    });
     const hint = $("payment-method-hint");
     if (hint) {
       hint.textContent = list.length
-        ? `روش‌های موجود در فایل: ${list.join("، ")}. برای فیلتر، روش را انتخاب و «بررسی دوبارهٔ فایل» را بزنید.`
-        : "برای پیش‌بینی فقط یک روش (مثلاً INSTALLMENT)، روش را انتخاب و دوباره بررسی کنید.";
+        ? `روش‌های موجود در فایل: ${list.join("، ")}. انتخاب شما هم همین‌جا و هم در قدم «تنظیم اجرا» اعمال می‌شود.`
+        : "این فایل ستون روش پرداخت ندارد؛ پس فقط «همهٔ روش‌ها» ممکن است.";
+    }
+    const setupHint = $("setup-payment-hint");
+    if (setupHint) {
+      setupHint.textContent = list.length
+        ? `پیش‌بینی فقط روی روش انتخاب‌شده ساخته می‌شود؛ «همهٔ روش‌ها» یعنی جمع فایل.`
+        : "این فایل ستون روش پرداخت ندارد؛ پیش‌بینی روی جمع فایل ساخته می‌شود.";
     }
   }
 
@@ -119,18 +148,40 @@
       else button.removeAttribute("aria-current");
     });
 
+    // The three cards of the design: ۰۱ readiness, ۰۲ evidence, ۰۳ handoff.
     const cards = [
-      ["۱", "داده", state.preview ? `${n(state.preview.days)} روز · ${n((state.preview.entities || []).length)} موجودیت` : "فایل بارگذاری نشده", "data", !!state.preview],
-      ["۲", "کیفیت", state.quality ? (state.quality.blocked ? "خطای مسدودکننده" : `${n(state.quality.counts?.warn)} هشدار · ${n(state.quality.counts?.pass)} سالم`) : "در انتظار داده", "quality", !!state.quality && !state.quality.blocked],
-      ["۳", "پیش‌بینی و اعتبار", state.forecast ? `مدل ${modelLabel(state.forecast.model)} · افق ${n(state.forecast.horizon)}` : "پس از تأیید کیفیت", "result", !!state.forecast],
-      ["۴", "تحویل", state.comparison || state.sensitivity ? "داشبورد و سناریو آماده" : "پس از پیش‌بینی", "deliver", !!(state.comparison || state.sensitivity)],
+      {
+        num: "۰۱", title: "دادهٔ آماده", go: "data",
+        desc: state.preview
+          ? `${n(state.preview.days)} روز · ${n((state.preview.entities || []).length)} موجودیت آمادهٔ بررسی`
+          : "فایل را بررسی و تأیید کنید",
+        note: "تشخیص ساختار، تاریخ شمسی و ۱۰ کنترل کیفیت",
+        done: !!state.preview,
+      },
+      {
+        num: "۰۲", title: "شواهد قابل بررسی", go: state.forecast ? "backtest" : "quality",
+        desc: state.forecast
+          ? `مدل ${modelLabel(state.forecast.model)} · افق ${n(state.forecast.horizon)} روز`
+          : "اعتبار پیش‌بینی را ببینید",
+        note: "انتخاب مدل با بک‌تست و نمایش عدم‌قطعیت",
+        done: !!state.forecast,
+      },
+      {
+        num: "۰۳", title: "تصمیم و تحویل", go: state.forecast ? "deliver" : "setup",
+        desc: state.comparison || state.sensitivity
+          ? "داشبورد ماهانه، سناریو و بستهٔ اکسل آماده است"
+          : "نتیجه را به تیم تحویل دهید",
+        note: "داشبورد ماهانه، سناریو و بستهٔ اکسل",
+        done: !!(state.comparison || state.sensitivity),
+      },
     ];
     const box = $("status-cards");
     if (box) {
-      box.innerHTML = cards.map(([num, title, sub, go, done]) => `
-        <button class="fact" type="button" data-go="${go}">
-          <span class="fact-label">${num} · ${title} ${done ? '<span class="tick" aria-label="انجام شد"></span>' : ""}</span>
-          <span class="fact-sub">${esc(sub)}</span>
+      box.innerHTML = cards.map((c) => `
+        <button class="journey-card" type="button" data-go="${c.go}">
+          <span class="journey-badge">${c.num}  ${esc(c.title)}</span>
+          <strong>${esc(c.desc)} ${c.done ? '<span class="tick" aria-label="انجام شد"></span>' : ""}</strong>
+          <small>${esc(c.note)}</small>
         </button>`).join("");
       box.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
     }
@@ -761,6 +812,7 @@
           quality_token: state.token,
           model: $("setup-model").value,
           horizon: $("setup-horizon").value,
+          payment_method: ($("setup-payment") || {}).value || "",
         }),
       });
       renderForecast(data);
@@ -901,10 +953,22 @@
       announce("کیفیت تأیید شد؛ تنظیم اجرا فعال است.");
     });
     $("setup-horizon").addEventListener("change", (e) => { $("horizon").value = e.target.value; });
+    ["payment-method", "setup-payment"].forEach((id) => {
+      const select = $(id);
+      if (!select) return;
+      select.addEventListener("change", (e) => {
+        ["payment-method", "setup-payment"].forEach((other) => {
+          const twin = $(other);
+          if (twin && twin.value !== e.target.value) twin.value = e.target.value;
+        });
+      });
+    });
     $("setup-model").addEventListener("change", (e) => {
       $("model-override-note").hidden = e.target.value === "auto";
     });
     $("run-btn").addEventListener("click", runForecast);
+    const historyAll = $("history-all");
+    if (historyAll) historyAll.addEventListener("click", () => loadHistory(40));
     $("monthly-btn").addEventListener("click", monthly);
     $("package-btn").addEventListener("click", preparePackage);
     $("sens-btn").addEventListener("click", sensitivity);
@@ -925,20 +989,40 @@
     }));
   }
 
-  async function loadHistory() {
+  // Status and action of one run, in the design's own words.
+  function runStatus(run) {
+    const steps = run.steps || {};
+    const code = run.payment_method ? ` · ${run.payment_method}` : "";
+    if (steps.package) return { label: "آمادهٔ تحویل" + code, action: "باز کردن" };
+    if (steps.forecast) return { label: "نتیجه آماده" + code, action: "ادامهٔ اجرا" };
+    if (steps.quality) return { label: "در انتظار پیش‌بینی" + code, action: "ادامهٔ اجرا" };
+    return { label: "در انتظار تأیید کیفیت", action: "ادامهٔ اجرا" };
+  }
+
+  async function loadHistory(limit) {
     try {
-      const data = await api("/api/runs?limit=8");
+      const data = await api(`/api/runs?limit=${limit || 8}`);
       const runs = data.runs || [];
-      $("history-meta").textContent = n(runs.length) + " اجرا";
       const tbody = $("history-table").querySelector("tbody");
-      tbody.innerHTML = runs.map((r) => `
-        <tr><td>${stamp(r.created_at)}</td><td class="name">${esc(r.file)}</td>
-        <td>${esc(r.origin || "—")}</td><td>${n(r.horizon)}</td>
-        <td>${esc(modelLabel(r.model))}</td>
-        <td>${n(Object.values(r.steps || {}).filter(Boolean).length)} از ۷</td>
-        <td><button class="btn btn-secondary btn-sm" data-restore="${esc(r.run_id)}">باز کردن</button></td></tr>`).join("")
-        || '<tr class="empty-row"><td colspan="7">اجرای قبلی وجود ندارد.</td></tr>';
+      tbody.innerHTML = runs.map((r) => {
+        const status = runStatus(r);
+        return `
+        <tr>
+          <td><span class="history-file"><strong>${esc(r.file)}</strong>
+            <small class="mono">${esc(r.run_id)}</small></span></td>
+          <td>${stamp(r.created_at)}</td>
+          <td>${n(r.horizon)} روز</td>
+          <td><span class="history-status">${esc(status.label)}</span></td>
+          <td><button class="history-go" type="button" data-restore="${esc(r.run_id)}">
+            ${esc(status.action)} <span class="arrow arrow-next" aria-hidden="true"></span>
+          </button></td>
+        </tr>`;
+      }).join("")
+        || '<tr class="empty-row"><td colspan="5">اجرای قبلی وجود ندارد؛ با «پیش‌بینی جدید» شروع کنید.</td></tr>';
       tbody.querySelectorAll("[data-restore]").forEach((b) => b.addEventListener("click", () => restoreRun(b.dataset.restore)));
+      $("history-foot").textContent = runs.length
+        ? `${n(runs.length)} اجرا نمایش داده شد · نشست‌ها تا ۴۰ اجرا نگهداری می‌شوند.`
+        : "نشست‌ها تا ۴۰ اجرا نگهداری می‌شوند.";
     } catch (error) {
       /* history is a convenience; the page must work without it */
     }
@@ -954,7 +1038,9 @@
       if (data.quality) renderQuality(data.quality);
       renderPaymentMethod(
         data.run.payment_method || (data.quality && data.quality.payment_method) || "",
-        (data.quality && data.quality.payment_methods) || []
+        data.run.payment_methods
+          || (data.quality && data.quality.payment_methods)
+          || undefined
       );
       if (data.forecast) renderForecast(data.forecast);
       if (data.comparison) renderComparison(data.comparison);
