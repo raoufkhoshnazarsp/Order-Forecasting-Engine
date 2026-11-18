@@ -21,8 +21,10 @@ from fastapi.staticfiles import StaticFiles
 from src import config
 from src.ingestion.excel import (
     ExcelInputError,
+    available_payment_methods,
     load_category_facts,
     load_workbook,
+    normalize_method,
     payment_method_shares,
     template_bytes,
 )
@@ -454,14 +456,37 @@ async def create_run(
     return JSONResponse(payload)
 
 
+def _drop_payment_slice(run_id: str) -> None:
+    """Forget the cached file and views built for the previous payment slice.
+
+    The delivery workbook, the frame and the report all read the cached
+    package, so a run re-sliced to another payment method must not serve the
+    old file.
+    """
+    (session.run_dir(run_id) / "package.xlsx").unlink(missing_ok=True)
+    record = session.load(run_id)
+    steps = dict(record.get("steps") or {})
+    steps["package"] = False
+    session.update(
+        run_id, package=None, comparison=None, sensitivity=None, steps=steps
+    )
+
+
 @app.post("/api/runs/{run_id}/forecast")
 def run_forecast(
     run_id: str,
     quality_token: str = Form(""),
     model: str = Form("auto"),
     horizon: str = Form("auto"),
+    payment_method: str = Form(""),
 ) -> JSONResponse:
-    """Step 3+4+5: forecast from the stored workbook after the token matches."""
+    """Step 3+4+5: forecast from the stored workbook after the token matches.
+
+    ``payment_method`` is the slice to forecast. Omitting it keeps the slice
+    chosen at upload; sending another method re-slices the same file (the
+    quality token hashes the whole workbook, so one approval covers every
+    slice of it) and throws away the cached delivery file of the old slice.
+    """
     record = _run_or_404(run_id)
     try:
         saved = session.workbook_path(record)
@@ -469,7 +494,18 @@ def run_forecast(
         raise HTTPException(status_code=410, detail=str(exc)) from exc
 
     requested = _requested_horizon(horizon)
-    method = record.get("payment_method") or ""
+    stored = record.get("payment_method") or ""
+    method = normalize_method(payment_method) or stored
+    if method:
+        available = available_payment_methods(saved)
+        if available and method not in available:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"روش پرداخت «{method}» در این فایل نیست. "
+                    f"روش‌های موجود: {', '.join(available)}"
+                ),
+            )
     try:
         report = require_quality(
             saved, quality_token, horizon=requested, payment_method=method
@@ -501,7 +537,11 @@ def run_forecast(
         result.mart, result.forecast, horizon=effective, model=result.model
     )
     summary["payment_method"] = report.payment_method
+    summary["payment_methods"] = list(report.payment_methods or [])
     summary["run_id"] = run_id
+
+    if method != stored:
+        _drop_payment_slice(run_id)
 
     session.save_view(run_id, "forecast", summary)
     # The sensitivity step works on the full forecast grain, so it is stored
@@ -513,6 +553,7 @@ def run_forecast(
         target=plan.get("target"),
         horizon=effective,
         model=summary.get("model"),
+        payment_method=method,
     )
     steps = dict(record.get("steps") or {})
     steps.update({"forecast": True, "backtest": bool(summary.get("backtest_report"))})

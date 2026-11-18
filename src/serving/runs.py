@@ -117,7 +117,9 @@ def create(workbook: Path, *, file_name: str, **meta) -> dict:
 
     record = {
         "run_id": run_id,
-        "created_at": datetime.now().isoformat(timespec="seconds"),
+        # Microseconds matter: two uploads in the same second must still sort
+        # newest-first, which the history table now shows directly.
+        "created_at": datetime.now().isoformat(timespec="microseconds"),
         "file": file_name,
         "stored": stored.name,
         "steps": {step: False for step in STEPS},
@@ -202,7 +204,10 @@ def list_runs(limit: int = 20) -> list[dict]:
                 "steps": record.get("steps") or {},
             }
         )
-    records.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+    records.sort(
+        key=lambda r: (r.get("created_at") or "", r.get("run_id") or ""),
+        reverse=True,
+    )
     return records[: max(1, limit)]
 
 
@@ -222,6 +227,12 @@ def session_payload(record: dict) -> dict:
             "horizon": record.get("horizon"),
             "model": record.get("model"),
             "payment_method": record.get("payment_method") or "",
+            # The upload-time quality report already lists every method of the
+            # file; the setup step needs it to fill its selector after a
+            # refresh, without re-reading the workbook.
+            "payment_methods": list(
+                (record.get("quality") or {}).get("payment_methods") or []
+            ),
             "steps": record.get("steps") or {},
         },
         "quality": record.get("quality"),
