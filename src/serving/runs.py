@@ -221,6 +221,7 @@ def session_payload(record: dict) -> dict:
             "target": record.get("target"),
             "horizon": record.get("horizon"),
             "model": record.get("model"),
+            "payment_method": record.get("payment_method") or "",
             "steps": record.get("steps") or {},
         },
         "quality": record.get("quality"),

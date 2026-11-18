@@ -36,6 +36,7 @@ from src.serving.delivery import (
     validate_delivery,
 )
 from src.serving.comparison import ComparisonError, build_comparison
+from src.serving.drivers import component_drivers
 from src.serving.preview import build_preview
 from src.serving.quality import QualityGateError, check_workbook, require_quality
 from src.serving.sensitivity import SensitivityError, apply_sensitivity
@@ -243,10 +244,13 @@ def _requested_horizon(raw: str | int | None) -> int | None:
 async def quality(
     file: UploadFile = File(...),
     horizon: str = Form("auto"),
+    payment_method: str = Form(""),
 ) -> JSONResponse:
     """Pre-flight gate: report every data check before anything is computed."""
     saved = await _save_upload(file)
-    report = check_workbook(saved, horizon=_requested_horizon(horizon))
+    report = check_workbook(
+        saved, horizon=_requested_horizon(horizon), payment_method=payment_method
+    )
     payload = report.as_dict()
     payload["preview"] = _preview_of(saved, report)
     return JSONResponse(payload)
@@ -268,12 +272,15 @@ async def forecast(
     horizon: str = Form("auto"),
     model: str = Form("auto"),
     quality_token: str = Form(""),
+    payment_method: str = Form(""),
 ) -> JSONResponse:
     saved = await _save_upload(file)
     requested = _requested_horizon(horizon)
 
     try:
-        report = require_quality(saved, quality_token, horizon=requested)
+        report = require_quality(
+            saved, quality_token, horizon=requested, payment_method=payment_method
+        )
     except QualityGateError as exc:
         raise HTTPException(status_code=428, detail=str(exc)) from exc
 
@@ -281,7 +288,12 @@ async def forecast(
     horizon = int(plan.get("horizon") or 30)
 
     try:
-        result = run_pipeline(saved, horizon=horizon, model=model)
+        result = run_pipeline(
+            saved,
+            horizon=horizon,
+            model=model,
+            payment_method=report.payment_method or None,
+        )
     except ExcelInputError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except PipelineError as exc:
@@ -297,6 +309,12 @@ async def forecast(
     summary["window"] = report.window
     summary["chart"] = _chart_payload(result)
     summary["entities_table"] = _entity_table(result)
+    summary["backtest_view"] = _backtest_summary(summary)
+    summary["backtest_view"]["chart"] = _backtest_chart(result)
+    summary["drivers"] = component_drivers(
+        result.mart, result.forecast, horizon=horizon, model=result.model
+    )
+    summary["payment_method"] = report.payment_method
     summary["last_run"] = record_run(
         "forecast",
         {
@@ -352,14 +370,51 @@ def _backtest_summary(summary: dict) -> dict:
     }
 
 
+def _backtest_chart(result) -> dict | None:
+    """Actual versus the model's own walk-forward prediction, over the test span.
+
+    The backtest already holds, for every origin and horizon, the prediction and
+    what actually happened. Plotting it is the only honest answer to "was the
+    model right about the past?" — much better than a number alone. Where two
+    origins predict the same day, the prediction made from the closest origin
+    (smallest horizon) is kept, so the line is comparable to the actuals.
+    """
+    rows = getattr(result, "backtest_rows", None)
+    if rows is None or rows.empty:
+        return None
+    frame = rows.copy()
+    frame["target_date"] = pd.to_datetime(frame["target_date"])
+    frame = frame.sort_values(["target_date", "horizon"])
+    frame = frame.drop_duplicates(subset=["target_date", "entity_id"], keep="first")
+    grouped = frame.groupby("target_date", as_index=False).agg(
+        actual=("actual", "sum"),
+        yhat=("yhat", "sum"),
+    )
+    grouped = grouped.sort_values("target_date")
+    # A year of daily points would be unreadable in one chart; keep the latest
+    # stretch that still shows several origins.
+    grouped = grouped.tail(120)
+    dates = [pd_date(d.date()) for d in grouped["target_date"]]
+    return {
+        "labels": dates,
+        "actual": [round(float(v), 1) for v in grouped["actual"]],
+        "forecast": [round(float(v), 1) for v in grouped["yhat"]],
+        "start": dates[0] if dates else None,
+        "end": dates[-1] if dates else None,
+    }
+
+
 @app.post("/api/runs")
 async def create_run(
     file: UploadFile = File(...),
     horizon: str = Form("auto"),
+    payment_method: str = Form(""),
 ) -> JSONResponse:
     """Step 1+2: save the workbook, read it once, run the gate, preview it."""
     saved = await _save_upload(file)
-    report = check_workbook(saved, horizon=_requested_horizon(horizon))
+    report = check_workbook(
+        saved, horizon=_requested_horizon(horizon), payment_method=payment_method
+    )
     payload = _quality_payload(report)
     preview = _preview_of(saved, report)
     plan = report.plan or {}
@@ -371,6 +426,7 @@ async def create_run(
             origin=report.origin.isoformat() if report.origin else None,
             target=plan.get("target"),
             horizon=plan.get("horizon"),
+            payment_method=report.payment_method,
             quality=payload,
             preview=preview,
         )
@@ -388,6 +444,7 @@ async def create_run(
         "run_id": record["run_id"],
         "file": record["file"],
         "created_at": record["created_at"],
+        "payment_method": record.get("payment_method") or "",
         "steps": steps,
     }
     payload["preview"] = preview
@@ -409,15 +466,20 @@ def run_forecast(
         raise HTTPException(status_code=410, detail=str(exc)) from exc
 
     requested = _requested_horizon(horizon)
+    method = record.get("payment_method") or ""
     try:
-        report = require_quality(saved, quality_token, horizon=requested)
+        report = require_quality(
+            saved, quality_token, horizon=requested, payment_method=method
+        )
     except QualityGateError as exc:
         raise HTTPException(status_code=428, detail=str(exc)) from exc
 
     plan = report.plan or {}
     effective = int(plan.get("horizon") or 30)
     try:
-        result = run_pipeline(saved, horizon=effective, model=model)
+        result = run_pipeline(
+            saved, horizon=effective, model=model, payment_method=method or None
+        )
     except (ExcelInputError, PipelineError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
@@ -431,6 +493,11 @@ def run_forecast(
     summary["chart"] = _chart_payload(result)
     summary["entities_table"] = _entity_table(result)
     summary["backtest_view"] = _backtest_summary(summary)
+    summary["backtest_view"]["chart"] = _backtest_chart(result)
+    summary["drivers"] = component_drivers(
+        result.mart, result.forecast, horizon=effective, model=result.model
+    )
+    summary["payment_method"] = report.payment_method
     summary["run_id"] = run_id
 
     session.save_view(run_id, "forecast", summary)
@@ -475,7 +542,9 @@ def run_comparison(
         raise HTTPException(status_code=410, detail=str(exc)) from exc
 
     try:
-        report = require_quality(saved, quality_token)
+        report = require_quality(
+            saved, quality_token, payment_method=record.get("payment_method") or ""
+        )
     except QualityGateError as exc:
         raise HTTPException(status_code=428, detail=str(exc)) from exc
 
@@ -489,6 +558,7 @@ def run_comparison(
             horizon=horizon_days,
             months=max(1, min(int(months or 6), 12)),
             model=model,
+            payment_method=report.payment_method,
         )
     except ComparisonError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -626,14 +696,17 @@ def _ensure_package(run_id: str) -> tuple[Path, dict]:
             raise HTTPException(status_code=410, detail=str(exc)) from exc
         horizon = int(record.get("horizon") or 30)
         model = record.get("model") or "auto"
+        method = record.get("payment_method") or None
         try:
-            facts = load_category_facts(saved)
+            facts = load_category_facts(saved, payment_method=method)
             built = build_delivery_frame(
                 facts,
                 origin=max(facts["date"]).date(),
                 horizon=horizon,
                 model=model,
-                method_shares=payment_method_shares(saved),
+                method_shares=payment_method_shares(
+                    saved, payment_method=method
+                ),
             )
             validate_delivery(built.frame)
         except (ExcelInputError, DeliveryError) as exc:
@@ -920,6 +993,7 @@ async def delivery(
     horizon: str = Form("auto"),
     model: str = Form("auto"),
     quality_token: str = Form(""),
+    payment_method: str = Form(""),
 ) -> StreamingResponse:
     """Return the delivery workbook: date | level | vertical | category | payment_method | order | GMV.
 
@@ -930,20 +1004,24 @@ async def delivery(
     requested = _requested_horizon(horizon)
 
     try:
-        report = require_quality(saved, quality_token, horizon=requested)
+        report = require_quality(
+            saved, quality_token, horizon=requested, payment_method=payment_method
+        )
     except QualityGateError as exc:
         raise HTTPException(status_code=428, detail=str(exc)) from exc
 
     horizon = int((report.plan or {}).get("horizon") or 30)
 
     try:
-        facts = load_category_facts(saved)
+        facts = load_category_facts(saved, payment_method=report.payment_method or None)
         result = build_delivery_frame(
             facts,
             origin=max(facts["date"]),
             horizon=horizon,
             model=model,
-            method_shares=payment_method_shares(saved),
+            method_shares=payment_method_shares(
+                saved, payment_method=report.payment_method or None
+            ),
         )
         validate_delivery(result.frame)
     except ExcelInputError as exc:
@@ -999,13 +1077,16 @@ async def comparison(
     model: str = Form("auto"),
     months: int = Form(6),
     quality_token: str = Form(""),
+    payment_method: str = Form(""),
 ) -> JSONResponse:
-    """Past months plus three scenarios for the next calendar month."""
+    """Past months plus three scenarios for the rest of this month and the next."""
     saved = await _save_upload(file)
     requested = _requested_horizon(horizon)
 
     try:
-        report = require_quality(saved, quality_token, horizon=requested)
+        report = require_quality(
+            saved, quality_token, horizon=requested, payment_method=payment_method
+        )
     except QualityGateError as exc:
         raise HTTPException(status_code=428, detail=str(exc)) from exc
 
@@ -1020,6 +1101,7 @@ async def comparison(
             horizon=horizon_days,
             months=max(1, min(int(months or 6), 12)),
             model=model,
+            payment_method=report.payment_method,
         )
     except ComparisonError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

@@ -73,6 +73,12 @@
                   <option value="30">۳۰ روز</option>
                 </select>
               </label>
+              <label class="field">
+                <span>روش پرداخت</span>
+                <select id="payment-method" name="payment_method">
+                  <option value="" selected>همهٔ روش‌ها</option>
+                </select>
+              </label>
               <button type="button" class="btn btn-secondary" id="check-btn">بررسی کیفیت</button>
               <button type="submit" class="btn btn-primary" id="submit-btn" disabled>ساخت داشبورد</button>
             </div>
@@ -118,9 +124,10 @@
 
           <div class="card">
             <div class="card-head">
-              <h3>ماه آینده — سه سناریو</h3>
+              <h3>باقی این ماه و ماه آینده — سه سناریو</h3>
               <span class="badge" id="scenario-badge"></span>
             </div>
+            <div class="chips" id="scenario-months" aria-label="انتخاب ماه سناریو"></div>
             <div class="table-wrap">
               <table class="table table-compact" id="scenario-table"><thead></thead><tbody></tbody></table>
             </div>

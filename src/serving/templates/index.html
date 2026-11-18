@@ -107,17 +107,27 @@
               <p class="dropzone-file" id="file-name" hidden></p>
             </div>
 
-            <label class="field">
-              <span>افق پیش‌بینی</span>
-              <select id="horizon" name="horizon">
-                <option value="auto" selected>تا پایان ماه میلادی بعد (پیشنهادی)</option>
-                <option value="7">۷ روز</option>
-                <option value="14">۱۴ روز</option>
-                <option value="30">۳۰ روز</option>
-                <option value="60">۶۰ روز</option>
-              </select>
-              <small>افق خودکار با پایان ماه هماهنگ می‌شود؛ تاریخ هدف در قدم کیفیت نمایش داده می‌شود.</small>
-            </label>
+            <div class="controls">
+              <label class="field">
+                <span>افق پیش‌بینی</span>
+                <select id="horizon" name="horizon">
+                  <option value="auto" selected>تا پایان ماه میلادی بعد (پیشنهادی)</option>
+                  <option value="7">۷ روز</option>
+                  <option value="14">۱۴ روز</option>
+                  <option value="30">۳۰ روز</option>
+                  <option value="60">۶۰ روز</option>
+                </select>
+                <small>افق خودکار با پایان ماه هماهنگ می‌شود؛ تاریخ هدف در قدم کیفیت نمایش داده می‌شود.</small>
+              </label>
+
+              <label class="field">
+                <span>روش پرداخت</span>
+                <select id="payment-method" name="payment_method">
+                  <option value="" selected>همهٔ روش‌ها</option>
+                </select>
+                <small id="payment-method-hint">برای پیش‌بینی فقط یک روش (مثلاً INSTALLMENT)، روش را انتخاب و دوباره بررسی کنید.</small>
+              </label>
+            </div>
 
             <div class="btn-row">
               <button type="submit" class="btn btn-primary" id="upload-btn">
@@ -316,6 +326,10 @@
               <div class="chart-box">
                 <svg id="backtest-chart" class="chart" viewBox="0 0 800 260" role="img"
                      aria-label="پیش‌بینی مدل برنده در برابر مقدار واقعی"></svg>
+                <div class="legend">
+                  <span><i class="dot dot-actual"></i>واقعی</span>
+                  <span><i class="dot dot-forecast"></i>پیش‌بینی مدل در همان روز</span>
+                </div>
               </div>
               <p class="muted" id="backtest-chart-note"></p>
             </div>
@@ -365,8 +379,7 @@
           </div>
 
           <p class="alert alert-info" id="drivers-empty" hidden>
-            برای این مدل توضیح ویژگی (drivers) تولید نمی‌شود. مدل سراسری ML این نما
-            را کامل ارائه می‌دهد؛ در قدم تنظیم می‌توانید آن را انتخاب کنید.
+            تاریخچهٔ کافی برای تجزیهٔ سهم عوامل موجود نیست (حداقل ۲۱ روز لازم است).
           </p>
 
           <div class="btn-row">
@@ -457,7 +470,7 @@
           <div class="grid-2">
             <div class="fact">
               <span class="fact-label">داشبورد ماهانه</span>
-              <span class="fact-sub">۶ ماه گذشته و سه سناریوی ماه آینده از خطای بک‌تست.</span>
+              <span class="fact-sub">باقی این ماه و کل ماه آینده، با سه سناریو از خطای بک‌تست.</span>
               <div class="btn-row">
                 <button type="button" class="btn btn-primary btn-sm" id="monthly-btn">ساخت داشبورد</button>
                 <a class="btn btn-secondary btn-sm" href="/comparison" id="monthly-link" hidden>صفحهٔ کامل داشبورد</a>
@@ -479,8 +492,9 @@
           <p class="alert alert-error" id="deliver-error" hidden role="alert"></p>
 
           <div id="monthly-box" hidden>
-            <h3>ماه‌های گذشته و سه سناریوی ماه آینده</h3>
+            <h3>باقی این ماه و ماه آینده — سه سناریو</h3>
             <div class="grid-3" id="monthly-kpis"></div>
+            <div class="chips" id="monthly-months" aria-label="انتخاب ماه سناریو"></div>
             <div class="table-wrap">
               <table class="table table-compact" id="monthly-table">
                 <thead></thead>

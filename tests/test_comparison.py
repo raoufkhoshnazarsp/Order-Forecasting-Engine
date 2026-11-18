@@ -107,12 +107,19 @@ def test_scenario_total_is_the_sum_of_the_seven():
     result = build_comparison(
         data, origin=date(2026, 8, 28), horizon=33, months=3, model="naive"
     )
-    for scenario in SCENARIOS:
-        chunk = [r for r in result.scenarios if r["scenario"] == scenario]
-        total = next(r for r in chunk if r["vertical"] == "VERTICALS")
-        core = [r for r in chunk if r["vertical"] in CORE]
-        assert np.isclose(total["orders"], sum(r["orders"] for r in core))
-        assert np.isclose(total["gmv"], sum(r["gmv"] for r in core))
+    months = [m["month"] for m in result.scenario_months]
+    assert months, "the horizon must touch at least one calendar month"
+    for month in months:
+        for scenario in SCENARIOS:
+            chunk = [
+                r
+                for r in result.scenarios
+                if r["scenario"] == scenario and r["month"] == month
+            ]
+            total = next(r for r in chunk if r["vertical"] == "VERTICALS")
+            core = [r for r in chunk if r["vertical"] in CORE]
+            assert np.isclose(total["orders"], sum(r["orders"] for r in core))
+            assert np.isclose(total["gmv"], sum(r["gmv"] for r in core))
 
 
 def test_gmv_equals_orders_times_aov_everywhere():
@@ -125,13 +132,28 @@ def test_gmv_equals_orders_times_aov_everywhere():
             assert np.isclose(row["gmv"] / row["orders"], row["aov"], rtol=1e-9)
 
 
-def test_next_month_is_the_month_after_the_origin():
+def test_scenarios_cover_the_rest_of_this_month_and_the_whole_next_month():
+    """Origin 2026-08-28 -> 3 rest-of-August days + all of September."""
     data = facts(240)
     result = build_comparison(
         data, origin=date(2026, 8, 28), horizon=33, months=3, model="naive"
     )
+    scopes = [(m["month"], m["scope"], m["days"]) for m in result.scenario_months]
+    assert scopes == [("2026-08", "current", 3), ("2026-09", "next", 30)]
+    assert result.current_month == "2026-08"
     assert result.next_month == "2026-09"
-    assert {r["month"] for r in result.scenarios} == {"2026-09"}
+    assert {r["month"] for r in result.scenarios} == {"2026-08", "2026-09"}
+    first = result.scenario_months[1]
+    assert (first["start"], first["end"]) == ("2026-09-01", "2026-09-30")
+
+
+def test_horizon_inside_one_month_yields_one_scenario_month():
+    data = facts(240)
+    result = build_comparison(
+        data, origin=date(2026, 8, 10), horizon=10, months=3, model="naive"
+    )
+    assert [m["scope"] for m in result.scenario_months] == ["current"]
+    assert {r["month"] for r in result.scenarios} == {"2026-08"}
 
 
 def test_monthly_actuals_match_daily_sums():
@@ -182,9 +204,12 @@ def test_result_is_json_safe():
     assert set(payload) == {
         "months",
         "scenarios",
+        "scenario_months",
         "next_month",
+        "current_month",
         "past_months",
         "model",
+        "payment_method",
         "validity",
         "warnings",
     }

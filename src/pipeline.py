@@ -262,9 +262,14 @@ def run_pipeline(
     min_train_days: int = 60,
     run_backtest: bool = True,
     vertical_map: dict[str, str] | None = None,
+    payment_method: str | None = None,
 ) -> PipelineResult:
-    """Load a workbook, build the mart, backtest, and forecast D+1..D+horizon."""
-    loaded = load_workbook(workbook_path)
+    """Load a workbook, build the mart, backtest, and forecast D+1..D+horizon.
+
+    ``payment_method`` forecasts one payment method only (for example
+    INSTALLMENT); every number downstream then describes that slice.
+    """
+    loaded = load_workbook(workbook_path, payment_method=payment_method)
     facts = loaded.facts.copy()
 
     if vertical_map is None:

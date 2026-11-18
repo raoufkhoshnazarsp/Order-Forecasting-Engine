@@ -38,6 +38,68 @@ class ExcelInputError(ValueError):
     """Raised when a workbook cannot be interpreted safely."""
 
 
+# A payment-method filter is a business choice ("only INSTALLMENT"), so the
+# empty string, ALL and its Persian spellings all mean "do not filter".
+_METHOD_ALL = {"", "ALL", "TOTAL", "همه", "کل", "كل"}
+
+
+def normalize_method(value: Any) -> str:
+    """Canonical payment-method name, or "" when the caller wants every row."""
+    # Endpoints are also called directly in tests and from Python, where the
+    # FastAPI ``Form(...)`` default object has not been resolved to a string yet
+    # -- that is "no filter", never the repr of the marker.
+    if value is not None and not isinstance(value, (str, bytes)):
+        return ""
+    text = str(value or "").strip().upper()
+    return "" if text in _METHOD_ALL else text
+
+
+def filter_by_method(
+    frame: pd.DataFrame, method: str | None, *, column: str = "payment_method_type"
+) -> pd.DataFrame:
+    """Keep the rows of one payment method; a no-op without a filter."""
+    wanted = normalize_method(method)
+    if not wanted or frame.empty:
+        return frame
+    if column not in frame.columns:
+        raise ExcelInputError(
+            "ستون روش پرداخت (payment_method_type) در فایل نیست؛ فیلتر روش پرداخت ممکن نیست."
+        )
+    values = frame[column].astype(str).str.strip().str.upper()
+    return frame[values.eq(wanted)]
+
+
+def available_payment_methods(path: str | Path) -> list[str]:
+    """Every payment method the workbook actually carries, sorted.
+
+    Returns an empty list when the workbook has no payment-method column at
+    all, which is how the UI knows the filter cannot be offered.
+    """
+    path = Path(path)
+    excel_config = load_excel_config()
+    lookup = build_header_lookup(excel_config)
+    methods: set[str] = set()
+    try:
+        sheets = _read_sheets(path)
+    except ExcelInputError:
+        return []
+    for _sheet, raw in sheets.items():
+        if raw.empty:
+            continue
+        raw = raw.dropna(how="all")
+        if raw.empty:
+            continue
+        mapped, _ignored, layout = map_sheet(raw.columns, lookup, excel_config)
+        header = mapped.get("payment_method_type")
+        if header is None or layout not in {"daily_metrics", "raw_orders"}:
+            continue
+        values = (
+            raw[header].dropna().astype(str).str.strip().str.upper()
+        )
+        methods.update(v for v in values.unique() if v)
+    return sorted(methods)
+
+
 @dataclass
 class SheetReport:
     sheet: str
@@ -296,9 +358,19 @@ def _classify_entity(row: pd.Series, excel_config: dict[str, Any]) -> tuple[str,
 
 
 def _raw_orders_to_facts(
-    frame: pd.DataFrame, mapped: dict[str, str], excel_config: dict[str, Any], report: SheetReport
+    frame: pd.DataFrame,
+    mapped: dict[str, str],
+    excel_config: dict[str, Any],
+    report: SheetReport,
+    payment_method: str | None = None,
 ) -> pd.DataFrame:
     work = pd.DataFrame({canonical: frame[header] for canonical, header in mapped.items()})
+    if normalize_method(payment_method):
+        before = len(work)
+        work = filter_by_method(work, payment_method)
+        report.warnings.append(
+            f"{before - len(work)} rows outside payment method {normalize_method(payment_method)} excluded"
+        )
     work["date"] = parse_dates(work["date"])
     before = len(work)
     work = work[work["date"].notna()]
@@ -378,14 +450,28 @@ def _aggregated_to_facts(
 
 def _daily_metrics_to_facts(
     frame: pd.DataFrame, mapped: dict[str, str], excel_config: dict[str, Any],
-    report: SheetReport,
+    report: SheetReport, payment_method: str | None = None,
 ) -> pd.DataFrame:
     """Commercial data-model export: date x vertical x category x payment method.
 
     Rows are aggregated to the leaf grain (date x entity). GMV is summed
     alongside orders so AOV can be derived later; it is never averaged.
+    A payment-method filter keeps only that method's rows before aggregation,
+    so the whole pipeline — gate, backtest, forecast and delivery — describes
+    exactly that slice of the business.
     """
     work = pd.DataFrame({canonical: frame[header] for canonical, header in mapped.items()})
+    if normalize_method(payment_method):
+        before = len(work)
+        work = filter_by_method(work, payment_method)
+        report.warnings.append(
+            f"{before - len(work)} rows outside payment method "
+            f"{normalize_method(payment_method)} excluded"
+        )
+        if work.empty:
+            raise ExcelInputError(
+                f"هیچ ردیفی با روش پرداخت {normalize_method(payment_method)} در فایل نیست."
+            )
     work["date"] = parse_dates(work["date"])
     work["successful_orders"] = _numeric(work["successful_orders"])
     work["gmv"] = _numeric(work["gmv"])
@@ -418,8 +504,14 @@ def _daily_metrics_to_facts(
     return grouped
 
 
-def load_workbook(path: str | Path) -> ExcelLoadResult:
-    """Read every sheet, auto-detect layout, and return normalized leaf facts."""
+def load_workbook(
+    path: str | Path, *, payment_method: str | None = None
+) -> ExcelLoadResult:
+    """Read every sheet, auto-detect layout, and return normalized leaf facts.
+
+    ``payment_method`` limits the facts to one method (INSTALLMENT, PAY_NOW…);
+    ``None`` or ``"all"`` keeps every row.
+    """
     path = Path(path)
     if not path.exists():
         raise ExcelInputError(f"Workbook not found: {path.resolve()}")
@@ -462,9 +554,13 @@ def load_workbook(path: str | Path) -> ExcelLoadResult:
             continue
 
         if layout == "raw_orders":
-            facts = _raw_orders_to_facts(raw, mapped, excel_config, report)
+            facts = _raw_orders_to_facts(
+                raw, mapped, excel_config, report, payment_method
+            )
         elif layout == "daily_metrics":
-            facts = _daily_metrics_to_facts(raw, mapped, excel_config, report)
+            facts = _daily_metrics_to_facts(
+                raw, mapped, excel_config, report, payment_method
+            )
         else:
             facts = _aggregated_to_facts(raw, mapped, report)
         frames.append(facts)
@@ -490,7 +586,10 @@ def load_workbook(path: str | Path) -> ExcelLoadResult:
 
 
 def load_category_facts(
-    path: str | Path, *, with_diagnostics: bool = False
+    path: str | Path,
+    *,
+    with_diagnostics: bool = False,
+    payment_method: str | None = None,
 ) -> pd.DataFrame | tuple[pd.DataFrame, dict[str, int]]:
     """Load the commercial export at its native grain: date x vertical x category.
 
@@ -519,6 +618,7 @@ def load_category_facts(
         if layout != "daily_metrics":
             continue
         work = pd.DataFrame({c: raw[h] for c, h in mapped.items()})
+        work = filter_by_method(work, payment_method)
         work["date"] = parse_dates(work["date"])
         work["orders"] = _numeric(work["successful_orders"])
         work["gmv"] = _numeric(work["gmv"])
@@ -537,6 +637,10 @@ def load_category_facts(
     facts = pd.concat(frames, ignore_index=True)
     facts = facts[facts["date"].notna() & facts["orders"].notna()].copy()
     if facts.empty:
+        if normalize_method(payment_method):
+            raise ExcelInputError(
+                f"هیچ ردیفی با روش پرداخت {normalize_method(payment_method)} در فایل نیست."
+            )
         raise ExcelInputError("No usable rows in the workbook")
     facts["date"] = pd.to_datetime(facts["date"])
 
@@ -556,7 +660,9 @@ def load_category_facts(
     return grouped
 
 
-def payment_method_shares(path: str | Path, *, days: int = 28) -> pd.DataFrame:
+def payment_method_shares(
+    path: str | Path, *, days: int = 28, payment_method: str | None = None
+) -> pd.DataFrame:
     """Historical share of orders by payment method per vertical x category.
 
     The engine forecasts the category total; the delivery file may then split
@@ -580,6 +686,9 @@ def payment_method_shares(path: str | Path, *, days: int = 28) -> pd.DataFrame:
         if layout != "daily_metrics" or "payment_method_type" not in mapped:
             continue
         work = pd.DataFrame({c: raw[h] for c, h in mapped.items()})
+        work = filter_by_method(work, payment_method)
+        if work.empty:
+            continue
         work["date"] = parse_dates(work["date"])
         work["orders"] = _numeric(work["successful_orders"])
         work["vertical"] = work["vertical"].astype(str).str.strip()

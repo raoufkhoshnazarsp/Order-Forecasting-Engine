@@ -23,7 +23,7 @@
   const state = {
     runId: null, token: null, quality: null, preview: null,
     forecast: null, comparison: null, sensitivity: null,
-    entity: "TOTAL", metric: "orders", step: 0,
+    entity: "TOTAL", metric: "orders", step: 0, monthlyMonth: null,
   };
 
   function n(value) {
@@ -63,6 +63,24 @@
     if (!response.ok) throw new Error(body.detail || "درخواست انجام نشد.");
     return body;
   }
+  // The methods come from the workbook itself, so the list is filled after the
+  // first check; the current choice survives a repopulation.
+  function renderPaymentMethod(active, methods) {
+    const select = $("payment-method");
+    if (!select) return;
+    const list = methods || (state.quality && state.quality.payment_methods) || [];
+    const chosen = active !== undefined && active !== null ? active : select.value;
+    select.innerHTML = '<option value="">همهٔ روش‌ها</option>'
+      + list.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join("");
+    if (chosen && list.some((m) => m === chosen)) select.value = chosen;
+    const hint = $("payment-method-hint");
+    if (hint) {
+      hint.textContent = list.length
+        ? `روش‌های موجود در فایل: ${list.join("، ")}. برای فیلتر، روش را انتخاب و «بررسی دوبارهٔ فایل» را بزنید.`
+        : "برای پیش‌بینی فقط یک روش (مثلاً INSTALLMENT)، روش را انتخاب و دوباره بررسی کنید.";
+    }
+  }
+
   function form(fields) {
     const body = new FormData();
     Object.entries(fields).forEach(([key, value]) => body.append(key, value));
@@ -81,7 +99,7 @@
 
   function maxUnlocked() {
     if (state.comparison || state.sensitivity) return 7;
-    if (state.forecast) return 6;
+    if (state.forecast) return 7;
     if (state.quality) return state.quality.blocked ? 2 : 3;
     if (state.preview) return 1;
     return 0;
@@ -257,26 +275,88 @@
       <td>${pct(vals.TOTAL)}</td><td>${pct(vals.LEAF)}</td></tr>`).join("");
     $("reconciliation-note").textContent =
       "این جدول فقط برای انتخاب روش فنی است؛ جمع کل و برگ‌ها در خروجی همیشه سازگار می‌مانند.";
-    $("backtest-chart-note").textContent =
-      "نمودار تطبیق تاریخچه با پیش‌بینی مدل برنده در قدم بعد (نتیجه) دیده می‌شود.";
+    const chart = view.chart || null;
+    $("backtest-chart-note").textContent = chart
+      ? `هر نقطه، پیش‌بینی مدل برای همان روز از یک مبدأ زودتر است؛ ${chart.start} تا ${chart.end}.`
+      : "بک‌تست کافی برای رسم این نمودار وجود نداشت.";
+    renderBacktestChart(chart);
+  }
+
+  // Actual versus the model's own earlier prediction, day by day. The band
+  // between the two lines is the error the backtest measured.
+  function renderBacktestChart(chart) {
+    const svg = $("backtest-chart");
+    if (!svg) return;
+    svg.innerHTML = "";
+    if (!chart || !(chart.actual || []).length) {
+      svg.innerHTML = '<text x="400" y="130" text-anchor="middle">داده‌ای برای این نمودار موجود نیست</text>';
+      return;
+    }
+    const actual = chart.actual || [];
+    const forecast = chart.forecast || [];
+    const max = Math.max.apply(null, actual.concat(forecast, [1])) * 1.12;
+    const W = 800, H = 260, pad = { l: 55, r: 15, t: 20, b: 42 };
+    const total = actual.length;
+    const x = (i) => pad.l + (i / Math.max(total - 1, 1)) * (W - pad.l - pad.r);
+    const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - Number(v || 0) / max);
+    const ns = "http://www.w3.org/2000/svg";
+    const node = (tag, attrs) => {
+      const el = document.createElementNS(ns, tag);
+      Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+      return el;
+    };
+    for (let i = 0; i <= 4; i += 1) {
+      const yy = y((max / 4) * i);
+      svg.appendChild(node("line", { x1: pad.l, x2: W - pad.r, y1: yy, y2: yy, class: "grid" }));
+      const label = node("text", { x: pad.l - 8, y: yy + 4, "text-anchor": "end" });
+      label.textContent = n((max / 4) * i);
+      svg.appendChild(label);
+    }
+    svg.appendChild(node("path", {
+      d: "M" + actual.map((v, i) => `${x(i)},${y(v)}`).join("L")
+        + "L" + forecast.map((v, i) => `${x(total - 1 - i)},${y(forecast[total - 1 - i])}`).join("L") + "Z",
+      class: "band",
+    }));
+    svg.appendChild(node("path", {
+      d: "M" + forecast.map((v, i) => `${x(i)},${y(v)}`).join("L"), class: "forecast",
+    }));
+    svg.appendChild(node("path", {
+      d: "M" + actual.map((v, i) => `${x(i)},${y(v)}`).join("L"), class: "actual",
+    }));
+    [[0, chart.start], [total - 1, chart.end]].forEach(([i, text]) => {
+      const label = node("text", { x: x(i), y: H - 12, "text-anchor": i === 0 ? "start" : "end" });
+      label.textContent = text || "";
+      svg.appendChild(label);
+    });
   }
 
   /* ---------- 5 · drivers ---------- */
   function renderDrivers(data) {
-    const report = data.global_model && data.global_model.drivers;
-    if (!report || !report.drivers || !report.drivers.length) {
-      $("drivers-empty").hidden = false;
-      return;
-    }
-    $("drivers-box").hidden = false;
-    $("drivers-note").textContent =
+    // `drivers` is produced for every model (component decomposition); the ML
+    // feature importances are a fallback only, since they exist for one model.
+    const report = data.drivers && data.drivers.drivers && data.drivers.drivers.length
+      ? data.drivers
+      : (data.global_model && data.global_model.drivers) || null;
+    $("drivers-empty").hidden = !!(report && (report.drivers || []).length);
+    $("drivers-box").hidden = !report || !(report.drivers || []).length;
+    if (!report || !(report.drivers || []).length) return;
+    $("drivers-note").textContent = report.note || (
       (report.method === "global_importance" ? "اهمیت سراسری ویژگی" : "سهم ویژگی در همین پیش‌بینی")
-      + "؛ این اعداد تخصیص مدل هستند، نه رابطهٔ علّی.";
+      + "؛ این اعداد تخصیص مدل هستند، نه رابطهٔ علّی.");
+    const entities = report.entities || [];
     $("driver-list").innerHTML = report.drivers.map((d) => `
       <li class="driver ${d.direction === "decrease" ? "is-down" : "is-up"}">
-        <span class="driver-name">${esc(d.feature)}</span>
-        <span class="driver-bar"><span style="width:${Math.max(2, Math.round(d.share * 100))}%"></span></span>
-        <span class="driver-share">${pct(d.share)}</span></li>`).join("");
+        <span class="driver-name">${esc(d.label || d.feature)}</span>
+        <span class="driver-bar"><span style="width:${Math.max(2, Math.round((d.share || 0) * 100))}%"></span></span>
+        <span class="driver-share">${pct(d.share)} · ${n(d.contribution)}</span></li>`).join("")
+      + (entities.length
+        ? `<li class="driver driver-total"><span class="driver-name">سهم موجودیت‌ها از جمع پیش‌بینی</span></li>`
+          + entities.map((e) => `
+          <li class="driver">
+            <span class="driver-name">${esc(e.entity_id)}</span>
+            <span class="driver-bar"><span style="width:${Math.max(2, Math.round((e.share || 0) * 100))}%"></span></span>
+            <span class="driver-share">${pct(e.share)} · ${n(e.orders)}</span></li>`).join("")
+        : "");
 
     const changed = ((data.regimes && data.regimes.entities) || [])
       .filter((e) => (e.changepoints || []).length);
@@ -425,7 +505,10 @@
 
   function renderForecast(data) {
     state.forecast = data;
-    ["step-backtest", "step-drivers", "step-result"].forEach((id) => { $(id).hidden = false; });
+    // `step-deliver` must be reachable too: the flow's last button lives there,
+    // and a hidden section made that button look dead.
+    ["step-backtest", "step-drivers", "step-result", "step-deliver"]
+      .forEach((id) => { $(id).hidden = false; });
     renderKpis(data);
     renderBacktest(data);
     renderDrivers(data);
@@ -433,6 +516,7 @@
     renderEntityTable(data);
     renderChart();
     renderWarnings(data);
+    renderPaymentMethod(data.payment_method);
     populateSensitivity();
     state.step = 4;
     renderSteps();
@@ -440,27 +524,60 @@
   }
 
   /* ---------- 7 · deliver ---------- */
+  const scenarioNames = { pessimistic: "بدبینانه", realistic: "واقع‌بینانه", optimistic: "خوش‌بینانه" };
+
   function renderComparison(data) {
     state.comparison = data;
     $("monthly-box").hidden = false;
-    const scenarios = data.scenarios || [];
-    const totals = scenarios.filter((r) => r.vertical === "VERTICALS");
-    $("monthly-kpis").innerHTML = [
-      ["ماه آینده", data.next_month, "سه سناریو"],
-      ["ماه‌های واقعی", n((data.past_months || []).length), "ماه کامل"],
-      ["مدل", modelLabel(data.model), data.validity && data.validity.low_confidence ? "اعتبار کم" : "اعتبار کافی"],
-    ].map((x) => `
-      <div class="fact"><span class="fact-label">${x[0]}</span>
-      <strong class="fact-value">${esc(x[1])}</strong>
-      <span class="fact-sub">${esc(x[2])}</span></div>`).join("");
+    const scenarioMonths = (data.scenario_months || []).length
+      ? data.scenario_months
+      : [{ month: data.next_month, scope: "next", days: null }];
+    const monthLabels = { current: "باقی این ماه", next: "ماه آینده" };
+
+    $("monthly-kpis").innerHTML = scenarioMonths.map((m, index) => {
+      const row = (data.scenarios || []).find(
+        (r) => r.month === m.month && r.vertical === "VERTICALS" && r.scenario === "realistic"
+      );
+      return `
+        <div class="fact ${index === 0 ? "kpi-accent" : ""}">
+          <span class="fact-label">${esc(monthLabels[m.scope] || "ماه")} · ${esc(m.month)}</span>
+          <strong class="fact-value">${n(row ? row.orders : null)}</strong>
+          <span class="fact-sub">سفارش · ${n(m.days)} روز</span></div>`;
+    }).join("") + `
+      <div class="fact"><span class="fact-label">ماه‌های واقعی</span>
+      <strong class="fact-value">${n((data.past_months || []).length)}</strong>
+      <span class="fact-sub">${esc(modelLabel(data.model))}</span></div>`;
+
+    if (!state.monthlyMonth || !scenarioMonths.some((m) => m.month === state.monthlyMonth)) {
+      state.monthlyMonth = scenarioMonths[0].month;
+    }
+    const chips = $("monthly-months");
+    if (chips) {
+      chips.innerHTML = scenarioMonths.map((m) => `
+        <button type="button" class="chip" data-month="${esc(m.month)}"
+                aria-pressed="${m.month === state.monthlyMonth}">
+          <strong>${esc(m.month)}</strong>
+          <small>${esc(monthLabels[m.scope] || "")} · ${n(m.days)} روز</small></button>`).join("");
+      chips.querySelectorAll("[data-month]").forEach((b) => b.addEventListener("click", () => {
+        state.monthlyMonth = b.dataset.month;
+        renderComparison(data);
+      }));
+    }
+    const month = state.monthlyMonth;
+    const rows = (data.scenarios || [])
+      .filter((r) => r.month === month)
+      .sort((a, b) => (
+        a.vertical === "VERTICALS" ? 1 : b.vertical === "VERTICALS" ? -1 : 0
+      ));
     $("monthly-table").querySelector("thead").innerHTML =
       "<tr><th>سناریو</th><th>ورتیکال</th><th>سفارش</th><th>GMV</th><th>انحراف نسبی</th></tr>";
-    $("monthly-table").querySelector("tbody").innerHTML = totals.map((r) => `
-      <tr class="${r.scenario === "realistic" ? "is-total" : ""}">
-        <td>${esc(r.month)} · ${esc(r.scenario)}</td>
+    $("monthly-table").querySelector("tbody").innerHTML = rows.map((r) => `
+      <tr class="${r.vertical === "VERTICALS" ? "is-total" : ""}">
+        <td>${esc(scenarioNames[r.scenario] || r.scenario)}</td>
         <td class="name">${esc(r.vertical)}</td>
         <td class="num">${n(r.orders)}</td><td class="num">${n(r.gmv)}</td>
-        <td>${pct(r.sigma_rel)}</td></tr>`).join("");
+        <td>${r.sigma_rel == null ? "—" : pct(r.sigma_rel)}</td></tr>`).join("")
+      || '<tr class="empty-row"><td colspan="5">سناریویی برای این ماه ساخته نشد.</td></tr>';
     $("monthly-note").textContent = (data.validity && data.validity.note) || "";
     $("monthly-link").hidden = false;
     $("monthly-link").href = "/comparison?run_id=" + encodeURIComponent(state.runId || "");
@@ -511,10 +628,21 @@
     if (!file) { show("upload-error", "ابتدا فایل اکسل را انتخاب کنید."); return; }
     setBusy("progress", "upload-btn", true, "در حال خواندن فایل و اجرای بررسی‌های کیفیت…");
     try {
-      const data = await api("/api/runs", { method: "POST", body: form({ file, horizon: $("horizon").value }) });
+      const data = await api("/api/runs", {
+        method: "POST",
+        body: form({
+          file,
+          horizon: $("horizon").value,
+          payment_method: ($("payment-method") || {}).value || "",
+        }),
+      });
       state.runId = data.run.run_id;
       state.token = data.token;
+      state.monthlyMonth = null;
+      state.comparison = null;
+      state.sensitivity = null;
       renderQuality(data);
+      renderPaymentMethod(data.payment_method || "", data.payment_methods || []);
       renderPreview(data.preview, state.quality.source);
       go("data");
       announce("فایل خوانده شد؛ پیش‌نمایش و گزارش کیفیت آماده است.");
@@ -609,9 +737,9 @@
   }
 
   // The last step opens with the download already prepared, so the format is
-  // one press away rather than something to discover.
+  // one press away rather than something to discover. `go()` calls this after
+  // scrolling, so it must never call `go()` back.
   async function openDeliverStep() {
-    go("deliver");
     if (!state.runId) return;
     const link = $("package-link");
     if (link.dataset.run === state.runId) return;
@@ -721,6 +849,10 @@
       state.token = (data.quality && data.quality.token) || null;
       if (data.preview) renderPreview(data.preview, data.run.file);
       if (data.quality) renderQuality(data.quality);
+      renderPaymentMethod(
+        data.run.payment_method || (data.quality && data.quality.payment_method) || "",
+        (data.quality && data.quality.payment_methods) || []
+      );
       if (data.forecast) renderForecast(data.forecast);
       if (data.comparison) renderComparison(data.comparison);
       if (data.sensitivity) renderSensitivity(data.sensitivity);

@@ -48,6 +48,27 @@
   let payload = null;
   let pastMetric = "orders";
   let chartMetric = "orders";
+  let scenarioMonth = null;
+
+  const MONTH_SCOPE = { current: "باقی این ماه", next: "ماه آینده" };
+
+  function scenarioMonths(data) {
+    if ((data.scenario_months || []).length) return data.scenario_months;
+    return data.next_month
+      ? [{ month: data.next_month, scope: "next", days: null }]
+      : [];
+  }
+
+  function scenarioTotal(data, month, scenario) {
+    return (data.scenarios || []).find(
+      (r) => r.month === month && r.vertical === "VERTICALS" && r.scenario === scenario
+    );
+  }
+
+  function methodValue() {
+    const select = document.getElementById("payment-method");
+    return select ? select.value : "";
+  }
 
   function formatNumber(value) {
     if (value === null || value === undefined || Number.isNaN(value)) return "—";
@@ -131,6 +152,22 @@
 
   const STATUS_LABEL = { pass: "سالم", warn: "هشدار", fail: "خطا" };
 
+  function renderMethods(report) {
+    const select = document.getElementById("payment-method");
+    if (!select) return;
+    const list = (report && report.payment_methods) || [];
+    const chosen = (report && report.payment_method) || select.value || "";
+    select.innerHTML = '<option value="">همهٔ روش‌ها</option>';
+    list.forEach((method) => {
+      const option = document.createElement("option");
+      option.value = method;
+      option.textContent = method;
+      select.appendChild(option);
+    });
+    if (chosen && list.includes(chosen)) select.value = chosen;
+    select.title = list.length ? "روش‌های موجود: " + list.join("، ") : "";
+  }
+
   function renderGate(report) {
     gate.hidden = false;
     gate.dataset.token = report.token || "";
@@ -181,6 +218,7 @@
     const body = new FormData();
     body.append("file", file);
     body.append("horizon", document.getElementById("horizon").value);
+    body.append("payment_method", methodValue());
 
     setBusy(true, "در حال بررسی کیفیت داده…");
     try {
@@ -188,6 +226,7 @@
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || "بررسی کیفیت داده ناموفق بود.");
       qualityFileKey = file.name + ":" + file.size + ":" + file.lastModified;
+      renderMethods(data);
       renderGate(data);
       gate.scrollIntoView({ behavior: "smooth", block: "nearest" });
     } catch (error) {
@@ -234,6 +273,7 @@
     body.append("horizon", document.getElementById("horizon").value);
     body.append("months", document.getElementById("months").value);
     body.append("quality_token", qualityToken || "");
+    body.append("payment_method", methodValue());
 
     setBusy(true, "در حال ساخت داشبورد مقایسه‌ای…");
     results.hidden = true;
@@ -253,6 +293,16 @@
       setBusy(false);
     }
   });
+
+  const methodSelect = document.getElementById("payment-method");
+  if (methodSelect) {
+    methodSelect.addEventListener("change", () => {
+      // A different method means a different dataset behind the same file, so
+      // the gate has to run again before the dashboard may use it.
+      resetGate();
+      if (fileInput.files[0]) runQualityCheck();
+    });
+  }
 
   document.getElementById("months").addEventListener("change", (event) => {
     if (sessionRun) buildFromSession(sessionRun, event.target.value);
@@ -281,16 +331,6 @@
     const prevTotal = (data.months || []).find(
       (r) => r.month === prevMonth && r.vertical === "VERTICALS"
     );
-    const realistic = (data.scenarios || []).find(
-      (r) => r.vertical === "VERTICALS" && r.scenario === "realistic"
-    );
-    const pessimistic = (data.scenarios || []).find(
-      (r) => r.vertical === "VERTICALS" && r.scenario === "pessimistic"
-    );
-    const optimistic = (data.scenarios || []).find(
-      (r) => r.vertical === "VERTICALS" && r.scenario === "optimistic"
-    );
-
     const growth =
       lastTotal && prevTotal && prevTotal.orders > 0
         ? (lastTotal.orders - prevTotal.orders) / prevTotal.orders
@@ -309,22 +349,24 @@
         sub: prevMonth ? `نسبت به ${prevMonth}` : "ماه قبل موجود نیست",
         cls: growth !== null && growth < 0 ? "kpi-warn" : "kpi-good",
       },
-      {
-        label: `پیش‌بینی ${data.next_month}`,
-        value: realistic ? formatNumber(realistic.orders) : "—",
-        sub: "سناریوی واقع‌بینانه",
-        cls: "kpi-accent",
-      },
-      {
-        label: "بازهٔ سناریو",
-        value:
-          pessimistic && optimistic
-            ? `${formatNumber(pessimistic.orders)} – ${formatNumber(optimistic.orders)}`
-            : "—",
-        sub: "بدبینانه تا خوش‌بینانه",
-        cls: "kpi-good",
-      },
     ];
+
+    // One card per calendar month the horizon touches: the rest of this month
+    // and the following month in full, each with its own scenario range.
+    scenarioMonths(data).forEach((entry) => {
+      const realistic = scenarioTotal(data, entry.month, "realistic");
+      const pessimistic = scenarioTotal(data, entry.month, "pessimistic");
+      const optimistic = scenarioTotal(data, entry.month, "optimistic");
+      cards.push({
+        label: `پیش‌بینی ${entry.month}`,
+        value: realistic ? formatNumber(realistic.orders) : "—",
+        sub: `${MONTH_SCOPE[entry.scope] || "ماه"}${entry.days ? " · " + fa.format(entry.days) + " روز" : ""}`
+          + (pessimistic && optimistic
+            ? ` · ${formatNumber(pessimistic.orders)} – ${formatNumber(optimistic.orders)}`
+            : ""),
+        cls: "kpi-accent",
+      });
+    });
 
     cards.forEach((card) => {
       const el = document.createElement("div");
@@ -386,8 +428,36 @@
     const badge = document.getElementById("scenario-badge");
     const note = document.getElementById("scenario-note");
 
-    badge.textContent = "ماه " + data.next_month;
+    const months = scenarioMonths(data);
+    if (!scenarioMonth || !months.some((m) => m.month === scenarioMonth)) {
+      scenarioMonth = months.length ? months[0].month : null;
+    }
+    const active = months.find((m) => m.month === scenarioMonth);
+    badge.textContent = active
+      ? `${MONTH_SCOPE[active.scope] || "ماه"} · ${active.month}` +
+        (active.days ? ` (${fa.format(active.days)} روز)` : "")
+      : "—";
     note.textContent = (data.validity && data.validity.note) || "";
+
+    const chips = document.getElementById("scenario-months");
+    if (chips) {
+      chips.innerHTML = "";
+      months.forEach((entry) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "chip";
+        button.setAttribute("aria-pressed", String(entry.month === scenarioMonth));
+        button.innerHTML = "<strong></strong><small></small>";
+        button.querySelector("strong").textContent = entry.month;
+        button.querySelector("small").textContent =
+          (MONTH_SCOPE[entry.scope] || "") + (entry.days ? ` · ${fa.format(entry.days)} روز` : "");
+        button.addEventListener("click", () => {
+          scenarioMonth = entry.month;
+          if (payload) renderScenarioTable(payload);
+        });
+        chips.appendChild(button);
+      });
+    }
 
     head.innerHTML = "";
     const headRow = document.createElement("tr");
@@ -407,7 +477,9 @@
 
     body.innerHTML = "";
     order.forEach((vertical) => {
-      const rows = (data.scenarios || []).filter((r) => r.vertical === vertical);
+      const rows = (data.scenarios || []).filter(
+        (r) => r.vertical === vertical && r.month === scenarioMonth
+      );
       if (!rows.length) return;
       const byScenario = {};
       rows.forEach((r) => { byScenario[r.scenario] = r; });
@@ -446,17 +518,22 @@
       );
       return row ? row[metric] : 0;
     });
-    const scenarioTotals = ["pessimistic", "realistic", "optimistic"].map((scenario) => {
-      const row = (data.scenarios || []).find(
-        (r) => r.vertical === "VERTICALS" && r.scenario === scenario
-      );
-      return row ? row[metric] : 0;
+    // Every scenario month gets its own group, so the rest of this month is not
+    // visually merged into the following month.
+    const bars = [];
+    scenarioMonths(data).forEach((entry) => {
+      ["pessimistic", "realistic", "optimistic"].forEach((scenario) => {
+        const row = scenarioTotal(data, entry.month, scenario);
+        bars.push({
+          label: `${SCENARIO_LABELS[scenario]}\n${entry.month}`,
+          value: row ? row[metric] : 0,
+          scenario,
+        });
+      });
     });
 
-    const labels = [...months, ...["pessimistic", "realistic", "optimistic"].map(
-      (s) => SCENARIO_LABELS[s]
-    )];
-    const values = [...pastTotals, ...scenarioTotals];
+    const labels = [...months, ...bars.map((b) => b.label)];
+    const values = [...pastTotals, ...bars.map((b) => b.value)];
     const maxValue = Math.max.apply(null, values.concat([1])) * 1.1;
 
     const W = 800;
@@ -500,19 +577,24 @@
       const height = (value / maxValue) * innerH;
       const y = pad.top + innerH - height;
       const isPast = index < months.length;
-      const scenario = isPast ? null : ["pessimistic", "realistic", "optimistic"][index - months.length];
+      const bar = isPast ? null : bars[index - months.length];
       svg.appendChild(
         make("rect", {
           x, y, width: barW, height: Math.max(height, 0),
           rx: 4,
-          fill: isPast ? colors.past : colors[scenario],
+          fill: isPast ? colors.past : colors[bar.scenario],
           opacity: isPast ? "0.75" : "0.95",
         })
       );
+      const parts = isPast ? [labels[index]] : bar.label.split("\n");
       const label = make("text", {
-        x: x + barW / 2, y: H - 26, "text-anchor": "middle",
+        x: x + barW / 2, y: H - 34, "text-anchor": "middle",
       });
-      label.textContent = labels[index];
+      parts.forEach((part, line) => {
+        const tspan = make("tspan", { x: x + barW / 2, dy: line === 0 ? 0 : 12 });
+        tspan.textContent = part;
+        label.appendChild(tspan);
+      });
       svg.appendChild(label);
     });
 
@@ -619,6 +701,7 @@
       if (!response.ok) throw new Error(data.detail || "نشست پیدا نشد.");
       const record = data.run || {};
       sessionRun = { runId, token: (data.quality && data.quality.token) || "" };
+      renderMethods(data.quality);
       sourceBadge.textContent = "فایل این اجرا";
       sourceBadge.className = "badge badge-pass";
       document.getElementById("dropzone").hidden = true;

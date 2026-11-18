@@ -22,7 +22,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.ingestion.excel import ExcelInputError, load_category_facts
+from src.ingestion.excel import (
+    ExcelInputError,
+    available_payment_methods,
+    load_category_facts,
+    normalize_method,
+)
 from src.serving.horizon import history_days, plan_horizon, window_advice
 
 PASS, WARN, FAIL = "pass", "warn", "fail"
@@ -67,6 +72,8 @@ class QualityReport:
     days: int = 0
     plan: dict | None = None
     window: dict | None = None
+    payment_method: str = ""
+    payment_methods: list[str] = field(default_factory=list)
 
     @property
     def status(self) -> str:
@@ -86,6 +93,8 @@ class QualityReport:
             "days": self.days,
             "plan": self.plan,
             "window": self.window,
+            "payment_method": self.payment_method,
+            "payment_methods": self.payment_methods,
             "counts": {
                 s: sum(1 for c in self.checks if c.status == s)
                 for s in (PASS, WARN, FAIL)
@@ -297,24 +306,37 @@ def _check_aov(facts: pd.DataFrame) -> Check:
 
 
 def check_workbook(
-    path: str | Path, *, horizon: int | None = None
+    path: str | Path,
+    *,
+    horizon: int | None = None,
+    payment_method: str | None = None,
 ) -> QualityReport:
     """Run every pre-flight check on a workbook and return the report.
 
     ``horizon=None`` means "to the end of next calendar month", resolved from
     the last day in the file. An explicit value is honoured but capped.
+
+    ``payment_method`` restricts every check — and every later step that uses
+    this report's facts — to one payment method. The token still hashes the
+    whole file, so approving the file once covers any slice of it.
     """
     path = Path(path)
     token = hashlib.sha256(path.read_bytes()).hexdigest()[:32]
+    method = normalize_method(payment_method)
+    methods = available_payment_methods(path)
 
     try:
-        facts, diagnostics = load_category_facts(path, with_diagnostics=True)
+        facts, diagnostics = load_category_facts(
+            path, with_diagnostics=True, payment_method=method or None
+        )
     except ExcelInputError as exc:
         return QualityReport(
             checks=[Check("load", "خواندن فایل", FAIL, str(exc))],
             facts=pd.DataFrame(),
             source=path.name,
             token=token,
+            payment_method=method,
+            payment_methods=methods,
         )
 
     days = history_days(facts)
@@ -344,18 +366,24 @@ def check_workbook(
         days=days,
         plan=plan.as_dict() if plan else None,
         window=window_advice(days),
+        payment_method=method,
+        payment_methods=methods,
     )
 
 
 def require_quality(
-    path: str | Path, token: str | None, *, horizon: int | None = None
+    path: str | Path,
+    token: str | None,
+    *,
+    horizon: int | None = None,
+    payment_method: str | None = None,
 ) -> QualityReport:
     """Re-run the gate and refuse to continue unless the user acknowledged it.
 
     The token is the hash of the exact file the user reviewed, so a different
     upload can never ride on an earlier approval.
     """
-    report = check_workbook(path, horizon=horizon)
+    report = check_workbook(path, horizon=horizon, payment_method=payment_method)
     if report.blocked:
         failed = [c.title for c in report.checks if c.status == FAIL]
         raise QualityGateError(
