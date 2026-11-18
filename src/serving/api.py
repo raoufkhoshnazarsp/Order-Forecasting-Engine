@@ -28,10 +28,12 @@ from src.ingestion.excel import (
 )
 from src.pipeline import PipelineError, run_pipeline
 from src.serving.delivery import (
+    FRAME_COLUMNS,
     INPUT_COLUMNS,
     OUTPUT_COLUMNS,
     DeliveryError,
     build_delivery_frame,
+    to_frame_layout,
     to_input_layout,
     validate_delivery,
 )
@@ -96,6 +98,7 @@ def index() -> HTMLResponse:
         cur_home=CURRENT,
         package_columns=" | ".join(OUTPUT_COLUMNS),
         input_columns=" | ".join(INPUT_COLUMNS),
+        frame_columns=" | ".join(FRAME_COLUMNS),
         side_foot="پردازش کاملاً محلی روی فایل اکسل<br />بدون اتصال به دیتابیس",
     )
 
@@ -681,6 +684,21 @@ def _delivery_bytes(frame: pd.DataFrame) -> bytes:
     return buffer.getvalue()
 
 
+def _frame_bytes(frame: pd.DataFrame) -> bytes:
+    """Same workbook writer as the client's frame file: 6 columns, ISO dates."""
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        out = frame.copy()
+        out["date"] = pd.to_datetime(out["date"])
+        out.to_excel(writer, sheet_name="Sheet1", index=False)
+        sheet = writer.sheets["Sheet1"]
+        for cell in sheet["A"][1:]:
+            cell.number_format = "yyyy-mm-dd"
+        for column, width in zip("ABCDEF", (14, 12, 18, 14, 16, 20)):
+            sheet.column_dimensions[column].width = width
+    return buffer.getvalue()
+
+
 def _ensure_package(run_id: str) -> tuple[Path, dict]:
     """Build the delivery workbook once; later calls read the cached file."""
     record = _run_or_404(run_id)
@@ -802,6 +820,103 @@ def export_preview(run_id: str) -> JSONResponse:
             "days": int(shaped["date"].nunique()),
             "verticals": sorted({str(v) for v in shaped["vertical"].unique()}),
             "sample": sample,
+        }
+    )
+
+
+@app.get("/api/runs/{run_id}/frame")
+def download_frame(run_id: str) -> Response:
+    """The forecast exactly in the frame the client's own file uses.
+
+    ``date | level | vertical | category | order | GMV`` at vertical grain,
+    one row per day per vertical — the layout they asked the prediction to be
+    saved in, ready for their downstream sheet without reshaping.
+    """
+    path, record = _ensure_package(run_id)
+    try:
+        shaped = to_frame_layout(pd.read_excel(path))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500, detail=f"ساخت خروجی قالب پیش‌بینی با خطا مواجه شد: {exc}"
+        ) from exc
+
+    buffer = io.BytesIO(_frame_bytes(shaped))
+
+    filename = f"forecast-{record.get('horizon') or 30}d-frame.xlsx"
+    return Response(
+        buffer.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Forecast-Rows": str(len(shaped)),
+        },
+    )
+
+
+@app.get("/api/runs/{run_id}/frame/preview")
+def frame_preview(run_id: str) -> JSONResponse:
+    """Columns, size and a few rows of the frame export, without downloading."""
+    path, record = _ensure_package(run_id)
+    shaped = to_frame_layout(pd.read_excel(path))
+    return JSONResponse(
+        {
+            "ready": True,
+            "columns": list(shaped.columns),
+            "rows": int(len(shaped)),
+            "days": int(shaped["date"].nunique()),
+            "verticals": sorted({str(v) for v in shaped["vertical"].unique()}),
+            "sample": shaped.head(5).astype(str).to_dict("records"),
+        }
+    )
+
+
+@app.get("/api/runs/{run_id}/report")
+def report_rows(run_id: str) -> JSONResponse:
+    """The forecast rows behind the report filters: date x vertical x method.
+
+    The filter bar on the report step is built from the data rather than from
+    a hard-coded list, so the months, verticals and payment methods it offers
+    are exactly the ones this forecast actually contains.
+    """
+    path, record = _ensure_package(run_id)
+    delivered = pd.read_excel(path)
+    delivered["date"] = pd.to_datetime(delivered["date"])
+    leaves = delivered[
+        ~delivered["vertical"].isin(["VERTICALS", "SNAPP-PAY"])
+    ].copy()
+    # Aggregate rows carry no payment method. A plain groupby would silently
+    # drop them, so the report would lose SNAPP-VENTURE and the vertical
+    # totals of the file.
+    leaves["payment_method"] = leaves["payment_method"].fillna("").astype(str)
+    leaves["month"] = leaves["date"].dt.to_period("M").astype(str)
+    grouped = (
+        leaves.groupby(
+            ["date", "month", "vertical", "payment_method"], as_index=False
+        )
+        .agg(order=("order", "sum"), GMV=("GMV", "sum"))
+        .sort_values(["date", "vertical", "payment_method"])
+    )
+    rows = [
+        {
+            "date": row.date.date().isoformat(),
+            "month": row.month,
+            "vertical": str(row.vertical),
+            "payment_method": str(row.payment_method or ""),
+            "order": float(row.order),
+            "GMV": float(row.GMV),
+        }
+        for row in grouped.itertuples(index=False)
+    ]
+    return JSONResponse(
+        {
+            "ready": True,
+            "rows": rows,
+            "months": sorted(grouped["month"].unique().tolist()),
+            "verticals": sorted(grouped["vertical"].unique().tolist()),
+            "payment_methods": sorted(
+                {m for m in grouped["payment_method"].fillna("").unique() if m}
+            ),
+            "days": int(grouped["date"].nunique()),
         }
     )
 

@@ -502,6 +502,60 @@ def write_input_layout(frame: pd.DataFrame, path: str | Path) -> Path:
     return path
 
 
+# The frame the business asked the forecast to be delivered in, taken from
+# their own sample file: one row per date x vertical, no category breakdown,
+# no payment-method column and no aggregate rows.
+FRAME_COLUMNS = ["date", "level", "vertical", "category", "order", "GMV"]
+FRAME_LEVEL = "vertical"
+FRAME_CATEGORY = "null"
+
+
+def to_frame_layout(frame: pd.DataFrame) -> pd.DataFrame:
+    """Collapse the delivery file to the vertical-level frame the client uses.
+
+    The sample file carries the seven core verticals plus ``SNAPP-VENTURE``,
+    one row per day, ``category`` filled with the literal ``null``, and no
+    ``VERTICALS`` / ``SNAPP-PAY`` rows. Values are the same forecast, summed
+    over the categories and payment methods of each vertical, so the frame
+    never disagrees with the delivery workbook.
+    """
+    verticals = [*VERTICAL_ORDER, VENTURE_LABEL]
+    leaves = frame[frame["vertical"].isin(verticals)].copy()
+    leaves["date"] = pd.to_datetime(leaves["date"]).dt.date
+    out = (
+        leaves.groupby(["date", "vertical"], as_index=False)
+        .agg(order=("order", "sum"), GMV=("GMV", "sum"))
+    )
+    rank = {name: i for i, name in enumerate(verticals)}
+    out["_rank"] = out["vertical"].map(rank)
+    out = (
+        out.sort_values(["date", "_rank"])
+        .drop(columns=["_rank"])
+        .reset_index(drop=True)
+    )
+    out["level"] = FRAME_LEVEL
+    out["category"] = FRAME_CATEGORY
+    out["order"] = out["order"].astype("float64")
+    out["GMV"] = out["GMV"].round(0)
+    return out.loc[:, FRAME_COLUMNS]
+
+
+def write_frame_layout(frame: pd.DataFrame, path: str | Path) -> Path:
+    """Write the client's forecast frame: date | level | vertical | category | order | GMV."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out = frame.copy()
+    out["date"] = pd.to_datetime(out["date"])
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        out.to_excel(writer, sheet_name="Sheet1", index=False)
+        sheet = writer.sheets["Sheet1"]
+        for cell in sheet["A"][1:]:
+            cell.number_format = "yyyy-mm-dd"
+        for column, width in zip("ABCDEF", (14, 12, 18, 14, 16, 20)):
+            sheet.column_dimensions[column].width = width
+    return path
+
+
 def write_delivery(frame: pd.DataFrame, path: str | Path) -> Path:
     """Write the workbook with the exact header and date formatting."""
     path = Path(path)

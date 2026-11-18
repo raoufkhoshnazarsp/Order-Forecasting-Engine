@@ -477,10 +477,10 @@
               </div>
             </div>
             <div class="fact">
-              <span class="fact-label">بستهٔ تحویل — آخرین قدم</span>
-              <span class="fact-sub">اکسل با ستون‌های {{package_columns}}.</span>
+              <span class="fact-label">فایل پیش‌بینی — آخرین قدم</span>
+              <span class="fact-sub">اکسل با ستون‌های {{frame_columns}}، یک ردیف برای هر روز و هر ورتیکال.</span>
               <div class="btn-row">
-                <button type="button" class="btn btn-primary btn-sm" id="package-btn">آماده‌سازی فایل خروجی</button>
+                <button type="button" class="btn btn-primary btn-sm" id="package-btn">ساخت فایل پیش‌بینی</button>
               </div>
             </div>
           </div>
@@ -504,9 +504,39 @@
             <p class="muted" id="monthly-note"></p>
           </div>
 
+          <div id="report-box" hidden>
+            <h3>گزارش پیش‌بینی</h3>
+            <p class="muted">
+              همین اعداد فایل خروجی، فیلترپذیر. فهرست هر منو از خود دادهٔ همین اجرا
+              ساخته می‌شود، پس چیزی که در فایل نیست اینجا هم پیشنهاد نمی‌شود.
+            </p>
+            <div class="controls" id="report-filters" aria-label="فیلتر گزارش">
+              <label class="field">
+                <span>ماه</span>
+                <select id="filter-month"><option value="">همهٔ ماه‌ها</option></select>
+              </label>
+              <label class="field">
+                <span>ورتیکال</span>
+                <select id="filter-vertical"><option value="">همهٔ ورتیکال‌ها</option></select>
+              </label>
+              <label class="field">
+                <span>روش پرداخت</span>
+                <select id="filter-payment"><option value="">همهٔ روش‌ها</option></select>
+              </label>
+              <button type="button" class="btn btn-secondary btn-sm" id="filter-reset">پاک‌کردن فیلترها</button>
+              <span class="muted" id="filter-status"></span>
+            </div>
+            <div class="grid-3" id="report-totals"></div>
+            <div class="table-wrap">
+              <table class="table table-compact" id="report-table">
+                <thead></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
           <div id="package-box" hidden>
-            <h3>پیش‌نمایش بستهٔ تحویل</h3>
-            <div class="preview-grid" id="package-facts"></div>
+            <h3>فایل پیش‌بینی — قالب استاندارد گزارش</h3>            <div class="preview-grid" id="package-facts"></div>
             <div class="table-wrap">
               <table class="table table-compact" id="package-table">
                 <thead></thead>
@@ -514,21 +544,26 @@
               </table>
             </div>
             <p class="package-download">
-              <a class="btn btn-primary" id="package-link" href="#" download>
-                دانلود خروجی پیش‌بینی ({{package_columns}})
+              <a class="btn btn-primary" id="frame-link" href="#" download>
+                دانلود فایل پیش‌بینی ({{frame_columns}})
               </a>
-            </p>
-            <p class="package-download">
-              <a class="btn btn-primary" id="export-link" href="#" download hidden>
-                دانلود در قالب دادهٔ ورودی ({{input_columns}})
-              </a>
-              <a class="btn btn-secondary" href="/api/template">دانلود قالب خالی</a>
               <span class="muted" id="package-file"></span>
             </p>
+            <p class="package-download">
+              <a class="btn btn-secondary" id="package-link" href="#" download hidden>
+                نسخهٔ تفصیلی با دسته و روش پرداخت ({{package_columns}})
+              </a>
+              <a class="btn btn-secondary" id="export-link" href="#" download hidden>
+                نسخهٔ هم‌قالب دادهٔ ورودی ({{input_columns}})
+              </a>
+              <a class="btn btn-secondary" href="/api/template">دانلود قالب خالی</a>
+            </p>
             <p class="muted">
-              فایل هم‌قالب ورودی همان ستون‌هایی را دارد که بارگذاری کردید
-              (تاریخ، ورتیکال، دسته، روش پرداخت، سفارش، GMV) و می‌توانید
-              دوباره همان را به موتور بدهید.
+              فایل اصلی همان شش ستونی را دارد که در فایل نمونهٔ شما بود
+              (تاریخ، سطح، ورتیکال، دسته، سفارش، GMV) و برای هر روز یک ردیف
+              به‌ازای هر ورتیکال. نسخهٔ تفصیلی همان اعداد را با تفکیک دسته و
+              روش پرداخت می‌دهد و نسخهٔ هم‌قالب ورودی را می‌توان دوباره به
+              موتور داد.
             </p>
           </div>
 

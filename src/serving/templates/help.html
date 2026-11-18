@@ -73,7 +73,10 @@
                 <tr><td class="mono">POST /api/runs/<run_id>/sensitivity</td><td>سناریوی حساسیت با فرض قابل‌تنظیم</td></tr>
                 <tr><td class="mono">GET /api/runs/<run_id></td><td>بازیابی نشست</td></tr>
                 <tr><td class="mono">GET /api/runs</td><td>سابقهٔ اجراها</td></tr>
-                <tr><td class="mono">GET /api/runs/<run_id>/package</td><td>دانلود فایل تحویل</td></tr>
+                <tr><td class="mono">GET /api/runs/<run_id>/frame</td><td>فایل پیش‌بینی در قالب گزارش: date | level | vertical | category | order | GMV (تاریخ × ورتیکال)</td></tr>
+                <tr><td class="mono">GET /api/runs/<run_id>/report</td><td>ردیف‌های گزارش با ماه، ورتیکال و روش پرداخت برای فیلتر کردن</td></tr>
+                <tr><td class="mono">GET /api/runs/<run_id>/package</td><td>فایل تفصیلی تحویل (با دسته و روش پرداخت)</td></tr>
+                <tr><td class="mono">GET /api/runs/<run_id>/export</td><td>همان پیش‌بینی در قالب دادهٔ ورودی</td></tr>
                 <tr><td class="mono">POST /api/quality</td><td>فقط گزارش کیفیت (بدون نشست)، سازگار با نسخهٔ قبلی</td></tr>
                 <tr><td class="mono">POST /api/forecast · /api/delivery · /api/comparison</td><td>مسیرهای قبلی: آپلود مستقیم با توکن، سازگار با کلاینت‌های قدیمی</td></tr>
               </tbody>

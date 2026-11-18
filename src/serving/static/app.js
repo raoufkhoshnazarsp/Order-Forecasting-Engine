@@ -523,6 +523,97 @@
     announce("پیش‌بینی و بک‌تست آماده شد.");
   }
 
+  /* ---------- report filters ---------- */
+  // The bar mirrors the client's planning report: month / vertical / payment,
+  // each list built from the data of this run, so a filter can never offer a
+  // value the forecast does not contain.
+  const report = { data: null, month: "", vertical: "", payment: "" };
+
+  function fillFilter(select, values, allLabel) {
+    const current = select.value;
+    select.innerHTML = `<option value="">${allLabel}</option>`
+      + values.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+    if (current && values.includes(current)) select.value = current;
+  }
+
+  function renderReportFilters() {
+    const data = report.data || {};
+    fillFilter($("filter-month"), data.months || [], "همهٔ ماه‌ها");
+    fillFilter($("filter-vertical"), data.verticals || [], "همهٔ ورتیکال‌ها");
+    fillFilter($("filter-payment"), data.payment_methods || [], "همهٔ روش‌ها");
+    if (!report.data) return;
+    renderReportRows();
+  }
+
+  function filteredRows() {
+    const rows = (report.data && report.data.rows) || [];
+    return rows.filter((r) => (!report.month || r.month === report.month)
+      && (!report.vertical || r.vertical === report.vertical)
+      && (!report.payment || r.payment_method === report.payment));
+  }
+
+  function renderReportRows() {
+    const rows = filteredRows();
+    const orders = rows.reduce((acc, r) => acc + r.order, 0);
+    const gmv = rows.reduce((acc, r) => acc + r.GMV, 0);
+    const days = new Set(rows.map((r) => r.date)).size;
+    $("report-totals").innerHTML = [
+      ["سفارش", n(orders), `${n(rows.length)} ردیف`],
+      ["GMV", n(gmv), `${n(days)} روز`],
+      ["AOV", n(orders ? gmv / orders : null), "GMV ÷ سفارش"],
+    ].map((x) => `
+      <div class="fact"><span class="fact-label">${x[0]}</span>
+      <strong class="fact-value">${esc(x[1])}</strong>
+      <span class="fact-sub">${esc(x[2])}</span></div>`).join("");
+    $("filter-status").textContent =
+      `${n(rows.length)} ردیف از ${n((report.data.rows || []).length)} ردیف`;
+
+    const byDate = {};
+    rows.forEach((r) => {
+      const day = (byDate[r.date] = byDate[r.date] || { order: 0, gmv: 0, methods: new Set() });
+      day.order += r.order;
+      day.gmv += r.GMV;
+      if (r.payment_method) day.methods.add(r.payment_method);
+    });
+    const dates = Object.keys(byDate).sort();
+    $("report-table").querySelector("thead").innerHTML =
+      "<tr><th>تاریخ</th><th>سفارش</th><th>GMV</th><th>AOV</th></tr>";
+    $("report-table").querySelector("tbody").innerHTML = dates.map((date) => {
+      const day = byDate[date];
+      return `<tr><td class="num">${esc(date)}</td><td class="num">${n(day.order)}</td>
+        <td class="num">${n(day.gmv)}</td>
+        <td class="num">${n(day.order ? day.gmv / day.order : null)}</td></tr>`;
+    }).join("") || '<tr class="empty-row"><td colspan="4">با این فیلتر ردیفی نیست.</td></tr>';
+  }
+
+  async function loadReport() {
+    if (!state.runId) return;
+    try {
+      report.data = await api(`/api/runs/${state.runId}/report`);
+      $("report-box").hidden = false;
+      renderReportFilters();
+    } catch (error) {
+      show("deliver-error", error.message);
+    }
+  }
+
+  function bindReportFilters() {
+    [["filter-month", "month"], ["filter-vertical", "vertical"], ["filter-payment", "payment"]]
+      .forEach(([id, key]) => {
+        const select = $(id);
+        if (select) select.addEventListener("change", () => {
+          report[key] = select.value;
+          renderReportRows();
+        });
+      });
+    const reset = $("filter-reset");
+    if (reset) reset.addEventListener("click", () => {
+      report.month = report.vertical = report.payment = "";
+      ["filter-month", "filter-vertical", "filter-payment"].forEach((id) => { $(id).value = ""; });
+      renderReportRows();
+    });
+  }
+
   /* ---------- 7 · deliver ---------- */
   const scenarioNames = { pessimistic: "بدبینانه", realistic: "واقع‌بینانه", optimistic: "خوش‌بینانه" };
 
@@ -588,9 +679,9 @@
   function renderPackage(info) {
     $("package-box").hidden = false;
     $("package-facts").innerHTML = [
-      ["ردیف خروجی", n(info.rows), "قالب تحویل"],
+      ["ردیف خروجی", n(info.rows), "تاریخ × ورتیکال"],
       ["روزهای پیش‌بینی", n(info.days), "از مبدأ تا هدف"],
-      ["دسته‌ها", n(info.categories), "ردیف‌های دسته‌ای"],
+      ["ورتیکال‌ها", n((info.verticals || []).length), "شامل ونچر"],
     ].map((x) => `
       <div class="fact"><span class="fact-label">${x[0]}</span>
       <strong class="fact-value">${esc(x[1])}</strong>
@@ -641,6 +732,9 @@
       state.monthlyMonth = null;
       state.comparison = null;
       state.sensitivity = null;
+      report.data = null;
+      $("report-box").hidden = true;
+      $("filter-status").textContent = "";
       renderQuality(data);
       renderPaymentMethod(data.payment_method || "", data.payment_methods || []);
       renderPreview(data.preview, state.quality.source);
@@ -694,26 +788,27 @@
     }
   }
 
-  // Build the delivery file once, then leave a plain link behind. Triggering a
+  // Build the delivery file once, then leave plain links behind. Triggering a
   // download from inside the click and discarding the response meant a second
   // press was the only way to download again -- and it rebuilt the workbook to
-  // get there. The endpoint caches, so the link can just point at it.
+  // get there. The endpoint caches, so the links can just point at it.
   async function preparePackage() {
     clear("deliver-error");
-    setBusy("deliver-progress", "package-btn", true, "در حال ساخت بستهٔ تحویل…");
+    setBusy("deliver-progress", "package-btn", true, "در حال ساخت فایل پیش‌بینی…");
     try {
-      const url = `/api/runs/${state.runId}/package`;
-      const preview = await api(`/api/runs/${state.runId}/package/preview`);
+      const url = `/api/runs/${state.runId}/frame`;
+      const preview = await api(`/api/runs/${state.runId}/frame/preview`);
       if (!preview.ready) {
         const response = await fetch(url);
         if (!response.ok) {
           const body = await response.json().catch(() => ({}));
-          throw new Error(body.detail || "ساخت بستهٔ تحویل ناموفق بود.");
+          throw new Error(body.detail || "ساخت فایل پیش‌بینی ناموفق بود.");
         }
         await response.arrayBuffer();
       }
       showPackageLink(url);
-      renderPackage(await api(`/api/runs/${state.runId}/package/preview`));
+      renderPackage(await api(`/api/runs/${state.runId}/frame/preview`));
+      await loadReport();
     } catch (error) {
       show("deliver-error", error.message);
     } finally {
@@ -721,33 +816,40 @@
     }
   }
 
-  // Two downloads from the same cached run: the delivery workbook the business
-  // reads, and the same forecast re-shaped into the columns the user uploaded.
+  // One forecast, three shapes of the same numbers: the client's own frame
+  // (the default), the detailed delivery workbook, and the input layout.
   function showPackageLink(url) {
-    const link = $("package-link");
-    link.href = url;
-    link.download = `forecast-${state.runId}.xlsx`;
-    link.setAttribute("data-run", state.runId || "");
+    const frameLink = $("frame-link");
+    frameLink.href = url;
+    frameLink.download = `forecast-${state.runId}.xlsx`;
+    frameLink.setAttribute("data-run", state.runId || "");
+
+    const packageUrl = url.replace(/\/frame$/, "/package");
+    const detailLink = $("package-link");
+    detailLink.href = packageUrl;
+    detailLink.download = `forecast-${state.runId}-detail.xlsx`;
+    detailLink.hidden = false;
+
     const exportLink = $("export-link");
-    const exportUrl = url.replace(/\/package$/, "/export");
-    exportLink.href = exportUrl;
+    exportLink.href = url.replace(/\/frame$/, "/export");
     exportLink.download = `forecast-${state.runId}-input-format.xlsx`;
     exportLink.hidden = false;
-    $("package-file").textContent = link.download;
+    $("package-file").textContent = frameLink.download;
   }
 
-  // The last step opens with the download already prepared, so the format is
+  // The last step opens with the download already prepared, so the file is
   // one press away rather than something to discover. `go()` calls this after
   // scrolling, so it must never call `go()` back.
   async function openDeliverStep() {
     if (!state.runId) return;
-    const link = $("package-link");
+    const link = $("frame-link");
     if (link.dataset.run === state.runId) return;
     try {
-      const preview = await api(`/api/runs/${state.runId}/package/preview`);
+      const preview = await api(`/api/runs/${state.runId}/frame/preview`);
       if (preview.ready) {
-        showPackageLink(`/api/runs/${state.runId}/package`);
+        showPackageLink(`/api/runs/${state.runId}/frame`);
         renderPackage(preview);
+        await loadReport();
       }
     } catch (error) {
       show("deliver-error", error.message);
@@ -806,6 +908,7 @@
     $("monthly-btn").addEventListener("click", monthly);
     $("package-btn").addEventListener("click", preparePackage);
     $("sens-btn").addEventListener("click", sensitivity);
+    bindReportFilters();
     $("sens-reset").addEventListener("click", () => {
       state.sensitivity = null;
       $("sens-result").innerHTML = '<p class="muted">فرض پاک شد؛ عددهای پایه نمایش داده می‌شوند.</p>';
