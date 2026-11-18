@@ -593,11 +593,18 @@
     }
   }
 
+  // Two downloads from the same cached run: the delivery workbook the business
+  // reads, and the same forecast re-shaped into the columns the user uploaded.
   function showPackageLink(url) {
     const link = $("package-link");
     link.href = url;
     link.download = `forecast-${state.runId}.xlsx`;
     link.setAttribute("data-run", state.runId || "");
+    const exportLink = $("export-link");
+    const exportUrl = url.replace(/\/package$/, "/export");
+    exportLink.href = exportUrl;
+    exportLink.download = `forecast-${state.runId}-input-format.xlsx`;
+    exportLink.hidden = false;
     $("package-file").textContent = link.download;
   }
 

@@ -28,9 +28,11 @@ from src.ingestion.excel import (
 )
 from src.pipeline import PipelineError, run_pipeline
 from src.serving.delivery import (
+    INPUT_COLUMNS,
     OUTPUT_COLUMNS,
     DeliveryError,
     build_delivery_frame,
+    to_input_layout,
     validate_delivery,
 )
 from src.serving.comparison import ComparisonError, build_comparison
@@ -92,6 +94,7 @@ def index() -> HTMLResponse:
         "index.html",
         cur_home=CURRENT,
         package_columns=" | ".join(OUTPUT_COLUMNS),
+        input_columns=" | ".join(INPUT_COLUMNS),
         side_foot="پردازش کاملاً محلی روی فایل اکسل<br />بدون اتصال به دیتابیس",
     )
 
@@ -608,9 +611,8 @@ def _delivery_bytes(frame: pd.DataFrame) -> bytes:
     return buffer.getvalue()
 
 
-@app.get("/api/runs/{run_id}/package")
-def download_package(run_id: str) -> Response:
-    """The delivery workbook of a run, built on first request and then cached."""
+def _ensure_package(run_id: str) -> tuple[Path, dict]:
+    """Build the delivery workbook once; later calls read the cached file."""
     record = _run_or_404(run_id)
     try:
         path = session.package_path(run_id)
@@ -655,6 +657,13 @@ def download_package(run_id: str) -> Response:
         session.mark(run_id, "package")
         record = session.load(run_id)
 
+    return path, record
+
+
+@app.get("/api/runs/{run_id}/package")
+def download_package(run_id: str) -> Response:
+    """The delivery workbook of a run, built on first request and then cached."""
+    path, record = _ensure_package(run_id)
     info = record.get("package") or {}
     filename = f"forecast-{record.get('horizon') or 30}d-{record.get('origin') or 'run'}.xlsx"
     return Response(
@@ -664,6 +673,63 @@ def download_package(run_id: str) -> Response:
             "Content-Disposition": f'attachment; filename="{filename}"',
             "X-Forecast-Rows": str(info.get("rows") or ""),
         },
+    )
+
+
+@app.get("/api/runs/{run_id}/export")
+def download_input_format(run_id: str) -> Response:
+    """The forecast in the same columns as the uploaded data.
+
+    The delivery file is what the business consumes, but an analyst often
+    wants the forecast back in the layout they handed in, so the file can be
+    re-uploaded or joined without any reshaping.
+    """
+    path, record = _ensure_package(run_id)
+    try:
+        delivered = pd.read_excel(path)
+        shaped = to_input_layout(delivered)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500, detail=f"ساخت خروجی هم‌قالب ورودی با خطا مواجه شد: {exc}"
+        ) from exc
+
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        out = shaped.copy()
+        out["date"] = pd.to_datetime(out["date"])
+        out.to_excel(writer, sheet_name="Sheet1", index=False)
+        sheet = writer.sheets["Sheet1"]
+        for cell in sheet["A"][1:]:
+            cell.number_format = "yyyy-mm-dd"
+        for column, width in zip("ABCDEF", (12, 16, 30, 22, 14, 20)):
+            sheet.column_dimensions[column].width = width
+
+    filename = f"forecast-{record.get('horizon') or 30}d-input-format.xlsx"
+    return Response(
+        buffer.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Forecast-Rows": str(len(shaped)),
+        },
+    )
+
+
+@app.get("/api/runs/{run_id}/export/preview")
+def export_preview(run_id: str) -> JSONResponse:
+    """Headers and a few rows of the input-format export, without downloading."""
+    path, record = _ensure_package(run_id)
+    shaped = to_input_layout(pd.read_excel(path))
+    sample = shaped.head(5).astype(str).to_dict("records")
+    return JSONResponse(
+        {
+            "ready": True,
+            "columns": list(shaped.columns),
+            "rows": int(len(shaped)),
+            "days": int(shaped["date"].nunique()),
+            "verticals": sorted({str(v) for v in shaped["vertical"].unique()}),
+            "sample": sample,
+        }
     )
 
 

@@ -10,12 +10,15 @@ import pytest
 
 from src.ingestion.excel import load_category_facts, payment_method_shares
 from src.serving.delivery import (
+    INPUT_COLUMNS,
     OUTPUT_COLUMNS,
     DeliveryError,
     build_delivery_frame,
     select_model,
+    to_input_layout,
     validate_delivery,
     write_delivery,
+    write_input_layout,
 )
 
 VERTICALS = {
@@ -281,3 +284,53 @@ def test_load_category_facts_keeps_the_category_grain(tmp_path):
     assert len(facts) == 20
     assert facts["orders"].eq(20).all()
     assert facts["gmv"].eq(10_000_000).all()
+
+
+def test_input_layout_drops_aggregates_and_keeps_the_leaves():
+    facts = source_facts(60)
+    delivery = build_delivery_frame(
+        facts, origin=date(2026, 2, 28), horizon=5, model="naive"
+    ).frame
+
+    shaped = to_input_layout(delivery)
+
+    assert list(shaped.columns) == INPUT_COLUMNS
+    # Aggregates are not data: VERTICALS is a total and SNAPP-PAY a placeholder.
+    assert "VERTICALS" not in set(shaped["vertical"])
+    assert "SNAPP-PAY" not in set(shaped["vertical"])
+    # Snapp-Venture is a real line in the input, spelled the way it was uploaded.
+    venture = shaped[shaped["vertical"] == "Snapp-Venture"]
+    assert not venture.empty
+    assert set(venture["category"]) == {"ventures"}
+    # No payment share table means UNKNOWN, not NaN, so the file re-uploads.
+    assert shaped["payment_method_type"].notna().all()
+    assert "UNKNOWN" in set(shaped["payment_method_type"])
+
+    # The per-category totals survive the reshape.
+    leaves = delivery[delivery["category"].notna()]
+    before = leaves.groupby(["date", "category"])[["order", "GMV"]].sum()
+    after = shaped.groupby(["date", "category"])[["orders", "gmv"]].sum()
+    after.columns = ["order", "GMV"]
+    pd.testing.assert_frame_equal(
+        before.sort_index(), after.sort_index(), check_exact=False, rtol=1e-9
+    )
+
+
+def test_input_layout_export_can_be_uploaded_again(tmp_path):
+    facts = source_facts(60)
+    delivery = build_delivery_frame(
+        facts, origin=date(2026, 2, 28), horizon=7, model="naive"
+    ).frame
+    shaped = to_input_layout(delivery)
+
+    path = write_input_layout(shaped, tmp_path / "export.xlsx")
+    back = pd.read_excel(path)
+    assert list(back.columns) == INPUT_COLUMNS
+    assert pd.api.types.is_datetime64_any_dtype(back["date"])
+    assert len(back) == len(shaped)
+
+    # The engine reads its own export without any reshaping.
+    reread = load_category_facts(path)
+    assert reread["date"].nunique() == 7
+    assert np.isclose(reread["orders"].sum(), shaped["orders"].sum())
+    assert np.isclose(reread["gmv"].sum(), shaped["gmv"].sum())

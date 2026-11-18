@@ -34,6 +34,11 @@ from src.serving.service import RunContext, residual_sigma
 
 OUTPUT_COLUMNS = ["date", "level", "vertical", "category", "payment_method", "order", "GMV"]
 
+# The input layout this engine reads back. An export in this format can be
+# uploaded again unchanged, which is what "download in the same format as my
+# data" means to an analyst.
+INPUT_COLUMNS = ["date", "vertical", "category", "payment_method_type", "orders", "gmv"]
+
 # Display names used by the delivery file, keyed by the source spelling.
 VERTICAL_DISPLAY = {
     "DIGITAL": "DIGITAL",
@@ -442,6 +447,59 @@ def validate_delivery(frame: pd.DataFrame) -> bool:
         if not np.isclose(total["GMV"].iloc[0], core["GMV"].sum(), rtol=1e-9, atol=1e-3):
             raise DeliveryError(f"{day}: VERTICALS GMV is not the sum of its categories")
     return True
+
+
+def to_input_layout(frame: pd.DataFrame) -> pd.DataFrame:
+    """Reshape a delivery frame into the layout the engine reads back in.
+
+    The delivery file mixes leaf rows with three aggregate rows. The input
+    format has no aggregates: ``VERTICALS`` is not a business line and the
+    ``SNAPP-PAY`` placeholder is not data, so both are dropped. ``SNAPP-VENTURE``
+    is a real line in the input, written as ``Snapp-Venture`` with its
+    ``ventures`` category. The result can be uploaded again unchanged.
+    """
+    leaves = frame[~frame["vertical"].isin([TOTAL_LABEL, PAY_LABEL])].copy()
+    vertical = leaves["vertical"].replace(
+        {**{name: name for name in VERTICAL_ORDER}, VENTURE_LABEL: "Snapp-Venture"}
+    )
+    out = pd.DataFrame(
+        {
+            "date": pd.to_datetime(leaves["date"]).dt.date,
+            "vertical": vertical,
+            "category": leaves["category"].fillna(""),
+            "payment_method_type": leaves["payment_method"].fillna(NO_METHOD),
+            "orders": leaves["order"].astype("float64"),
+            "gmv": leaves["GMV"].astype("float64"),
+        }
+    )
+    # Sum payment methods first: rounding the split leaves decimals that add
+    # up to the category total only after re-summing.
+    out = (
+        out.groupby(
+            ["date", "vertical", "category", "payment_method_type"], as_index=False
+        )
+        .agg(orders=("orders", "sum"), gmv=("gmv", "sum"))
+        .loc[:, INPUT_COLUMNS]
+        .sort_values(["date", "vertical", "category", "payment_method_type"])
+        .reset_index(drop=True)
+    )
+    return out
+
+
+def write_input_layout(frame: pd.DataFrame, path: str | Path) -> Path:
+    """Write the input-format export with the same headers the engine reads."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out = frame.copy()
+    out["date"] = pd.to_datetime(out["date"])
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        out.to_excel(writer, sheet_name="Sheet1", index=False)
+        sheet = writer.sheets["Sheet1"]
+        for cell in sheet["A"][1:]:
+            cell.number_format = "yyyy-mm-dd"
+        for column, width in zip("ABCDEF", (12, 16, 30, 22, 14, 20)):
+            sheet.column_dimensions[column].width = width
+    return path
 
 
 def write_delivery(frame: pd.DataFrame, path: str | Path) -> Path:
